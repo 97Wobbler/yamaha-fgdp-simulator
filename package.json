@@ -1,0 +1,57 @@
+{
+  "name": "yamaha-fgdp-simulator",
+  "version": "1.0.0",
+  "description": "A web-based drum pattern editor and trainer for Yamaha FGDP-50 finger drum pad",
+  "author": "97wobbler",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://97wobbler.github.io/yamaha-fgdp-simulator/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/97wobbler/yamaha-fgdp-simulator.git"
+  },
+  "keywords": [
+    "yamaha",
+    "fgdp-50",
+    "drum",
+    "finger-drumming",
+    "sequencer",
+    "music",
+    "trainer"
+  ],
+  "private": false,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage"
+  },
+  "dependencies": {
+    "pako": "^2.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tone": "^14.8.49",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.1",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react-swc": "^4.2.2",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.12.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.12",
+    "jsdom": "^27.3.0",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.16"
+  }
+}
