@@ -61,6 +61,8 @@ interface PlaybackStore {
 
 /** ID for scheduled transport event */
 let scheduleId: number | null = null;
+/** ID for scheduled once event (current step playback) */
+let scheduleOnceId: number | null = null;
 
 /**
  * Clamp BPM to valid range
@@ -84,10 +86,14 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       const state = get();
       if (state.isPlaying) return;
 
-      // Clear any existing schedule
+      // Clear any existing schedules
       if (scheduleId !== null) {
         Tone.getTransport().clear(scheduleId);
         scheduleId = null;
+      }
+      if (scheduleOnceId !== null) {
+        Tone.getTransport().clear(scheduleOnceId);
+        scheduleOnceId = null;
       }
 
       // Get pattern subdivision for scheduling interval
@@ -122,11 +128,27 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       // Update currentStep to match Transport.position
       set({ currentStep: calculatedStep, pausedPosition: 0 });
 
+      // Play current step immediately when starting playback
+      // This ensures audio plays when playhead is at the step's start position
+      const { playPad, isAudioReady } = useAudioStore.getState();
+      if (pattern && isAudioReady) {
+        // Schedule current step to play at Transport start time
+        // Use scheduleOnce to ensure it plays at the correct Transport time
+        scheduleOnceId = Tone.getTransport().scheduleOnce((time) => {
+          pattern.tracks.forEach((track) => {
+            const step = track.steps[calculatedStep];
+            if (step?.active) {
+              playPad(track.padId as PadId, time);
+            }
+          });
+          scheduleOnceId = null; // Clear ID after execution
+        }, 0); // Schedule at Transport time 0 (current position)
+      }
+
       // Calculate time until next step boundary (in Transport time)
-      // Since pausedPosition is already snapped to step boundary, timeUntilNextStep = stepDuration
-      const timeUntilNextStep = state.isPaused && state.pausedPosition > 0
-        ? stepDuration // Already at step boundary, scheduleRepeat starts at next step
-        : stepDuration - (transportPosition % stepDuration); // Calculate for fresh start
+      // Since we already played the current step, scheduleRepeat starts at the next step
+      const positionInStep = transportPosition % stepDuration;
+      const timeUntilNextStep = positionInStep === 0 ? stepDuration : stepDuration - positionInStep;
 
       // Schedule step advance based on pattern subdivision
       // Timing Fix: Use Web Audio API's precise scheduling via `time` parameter
@@ -138,14 +160,15 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
           const currentTotalSteps = currentPattern?.tracks[0]?.steps.length ?? 16;
           const nextStep = (currentStep + 1) % currentTotalSteps;
 
-          // Story 3.5: Play sounds for active notes in the current step
+          // Story 3.5: Play sounds for active notes in the next step
+          // Note: We play the NEXT step here because currentStep will be updated after this
           const { playPad, isAudioReady } = useAudioStore.getState();
 
           if (currentPattern && isAudioReady) {
-            // Play all active notes for this step (polyphonic)
+            // Play all active notes for the next step (polyphonic)
             // Pass `time` for precise audio scheduling
             currentPattern.tracks.forEach((track) => {
-              const step = track.steps[currentStep];
+              const step = track.steps[nextStep];
               if (step?.active) {
                 playPad(track.padId as PadId, time);
               }
@@ -163,23 +186,10 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
         timeUntilNextStep // Start at next step boundary
       );
 
-      // Start transport
-      Tone.getTransport().start();
-      
-      // When resuming from pause, play current step at the Transport start time
-      // This is scheduled separately to avoid conflict with scheduleRepeat
-      const { playPad, isAudioReady } = useAudioStore.getState();
-      if (pattern && isAudioReady && state.isPaused && state.pausedPosition > 0) {
-        // Schedule current step to play at Transport start + small offset
-        // This ensures it plays after Transport.start() but before scheduleRepeat's first callback
-        Tone.getTransport().scheduleOnce((time) => {
-          pattern.tracks.forEach((track) => {
-            const step = track.steps[calculatedStep];
-            if (step?.active) {
-              playPad(track.padId as PadId, time);
-            }
-          });
-        }, 0); // Schedule at Transport time 0 (current position)
+      // Start transport (only if not already started)
+      // This prevents Transport.position from accumulating when rapidly pausing/resuming
+      if (!Tone.getTransport().state || Tone.getTransport().state === 'stopped') {
+        Tone.getTransport().start();
       }
       
       set({ isPlaying: true, isPaused: false });
@@ -216,10 +226,14 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       // Set Transport.position to snapped position
       Tone.getTransport().position = snappedPosition;
 
-      // Clear scheduled event
+      // Clear scheduled events
       if (scheduleId !== null) {
         Tone.getTransport().clear(scheduleId);
         scheduleId = null;
+      }
+      if (scheduleOnceId !== null) {
+        Tone.getTransport().clear(scheduleOnceId);
+        scheduleOnceId = null;
       }
 
       set({ 
@@ -238,10 +252,14 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       // Stop transport
       Tone.getTransport().stop();
 
-      // Clear scheduled event
+      // Clear scheduled events
       if (scheduleId !== null) {
         Tone.getTransport().clear(scheduleId);
         scheduleId = null;
+      }
+      if (scheduleOnceId !== null) {
+        Tone.getTransport().clear(scheduleOnceId);
+        scheduleOnceId = null;
       }
 
       // Reset position
