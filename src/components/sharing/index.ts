@@ -5,3 +5,4 @@
  */
 
 export { ShareButton } from './ShareButton';
+export { GitHubLink } from "./GitHubLink";

@@ -26,6 +26,23 @@ function PlayIcon() {
 }
 
 /**
+ * Pause icon (two vertical bars)
+ */
+function PauseIcon() {
+  return (
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <rect x="6" y="4" width="4" height="16" />
+      <rect x="14" y="4" width="4" height="16" />
+    </svg>
+  );
+}
+
+/**
  * Stop icon (square)
  */
 function StopIcon() {
@@ -45,11 +62,30 @@ function StopIcon() {
  * PlaybackControls component
  */
 export const PlaybackControls = memo(function PlaybackControls() {
-  const { isPlaying, toggle, bpm, setBpm, adjustBpm } = usePlaybackStore();
-  const { isAudioReady, isLoading: isAudioLoading, error: audioError } = useAudioStore();
+  const { isPlaying, isPaused, play, pause, stop, bpm, setBpm, adjustBpm } = usePlaybackStore();
+  const { isAudioReady, isLoading: isAudioLoading, initAudio } = useAudioStore();
 
   // Disable playback if audio not ready
   const canPlay = isAudioReady && !isAudioLoading;
+
+  // Handle play with audio initialization
+  const handlePlay = useCallback(async () => {
+    // If audio is not ready, initialize it first
+    // App.tsx handleFirstInteraction will also trigger on click, but we ensure it here
+    if (!isAudioReady && !isAudioLoading) {
+      await initAudio();
+    }
+    // Play will be handled after audio is ready via App.tsx or on next click
+    // For now, just trigger play - if audio isn't ready, it will be disabled
+    if (isAudioReady || isAudioLoading) {
+      // Wait a bit for audio to be ready if it's loading
+      if (isAudioLoading) {
+        // Audio is initializing, play will be enabled after it's ready
+        return;
+      }
+      play();
+    }
+  }, [isAudioReady, isAudioLoading, initAudio, play]);
 
   // Handle BPM input change
   const handleBpmChange = useCallback(
@@ -77,12 +113,12 @@ export const PlaybackControls = memo(function PlaybackControls() {
   );
 
   return (
-    <div className="flex items-center gap-4">
-      {/* Play/Stop Button */}
+    <div className="flex items-center gap-2">
+      {/* Play Button */}
       <button
         type="button"
-        onClick={toggle}
-        disabled={!canPlay}
+        onClick={handlePlay}
+        disabled={isPlaying}
         className={`
           flex items-center justify-center
           w-10 h-10 rounded-full
@@ -90,19 +126,59 @@ export const PlaybackControls = memo(function PlaybackControls() {
           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900
           ${
             isPlaying
-              ? 'bg-rose-500 hover:bg-rose-400 focus:ring-rose-400 text-white'
+              ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
               : canPlay
                 ? 'bg-emerald-500 hover:bg-emerald-400 focus:ring-emerald-400 text-white'
                 : 'bg-slate-700 text-slate-500 cursor-not-allowed'
           }
         `}
-        aria-label={isPlaying ? 'Stop playback' : 'Start playback'}
+        aria-label="Start playback"
       >
-        {isPlaying ? <StopIcon /> : <PlayIcon />}
+        <PlayIcon />
+      </button>
+
+      {/* Pause Button */}
+      <button
+        type="button"
+        onClick={pause}
+        disabled={!isPlaying || !canPlay}
+        className={`
+          flex items-center justify-center
+          w-10 h-10 rounded-full
+          transition-colors
+          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900
+          ${
+            isPaused
+              ? 'bg-amber-500 hover:bg-amber-400 focus:ring-amber-400 text-white ring-2 ring-amber-400'
+              : 'bg-slate-700 hover:bg-slate-600 focus:ring-slate-400 text-slate-300'
+          }
+          disabled:opacity-50 disabled:cursor-not-allowed
+        `}
+        aria-label="Pause playback"
+      >
+        <PauseIcon />
+      </button>
+
+      {/* Stop Button */}
+      <button
+        type="button"
+        onClick={stop}
+        disabled={(!isPlaying && !isPaused) || !canPlay}
+        className="
+          flex items-center justify-center
+          w-10 h-10 rounded-full
+          transition-colors
+          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900
+          bg-slate-700 hover:bg-slate-600 focus:ring-slate-400 text-slate-300
+          disabled:opacity-50 disabled:cursor-not-allowed
+        "
+        aria-label="Stop playback"
+      >
+        <StopIcon />
       </button>
 
       {/* BPM Control */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 ml-2">
         <button
           type="button"
           onClick={() => adjustBpm(-5)}
@@ -153,17 +229,6 @@ export const PlaybackControls = memo(function PlaybackControls() {
         >
           +
         </button>
-      </div>
-
-      {/* Audio Status */}
-      <div className="text-xs">
-        {!isAudioReady && !isAudioLoading && (
-          <span className="text-slate-500">Click to enable audio</span>
-        )}
-        {isAudioLoading && (
-          <span className="text-amber-400 animate-pulse">Loading...</span>
-        )}
-        {audioError && <span className="text-rose-400">{audioError}</span>}
       </div>
     </div>
   );
