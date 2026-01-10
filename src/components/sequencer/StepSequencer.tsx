@@ -310,6 +310,7 @@ export function StepSequencer() {
   }, [urlCheckComplete, currentPattern, createEmptyPattern]);
 
   // Real-time playhead position update using requestAnimationFrame
+  // Single time source principle: Transport.position is the source of truth
   useEffect(() => {
     if (!isPlaying && !isPaused) {
       setPlayheadPosition(0);
@@ -322,29 +323,14 @@ export function StepSequencer() {
     const totalSteps = currentPattern.tracks[0]?.steps.length ?? 16;
     
     // Calculate step duration in seconds
-    // One beat = 60 / BPM seconds
-    // One step = (60 / BPM) / stepsPerBeat seconds
     const stepDuration = (60 / bpm) / stepsPerBeat;
 
-    // When paused, calculate playhead position using the same logic as pause()
-    // This ensures consistency: always round down (Math.floor) for forward snapping
+    // When paused, calculate playhead position from pausedPosition (no snapping)
     if (isPaused) {
-      // Use pausedPosition if available (set during pause()), otherwise use Transport.position
-      let transportPosition: number;
-      if (pausedPosition > 0) {
-        transportPosition = pausedPosition;
-      } else {
-        // Fallback: read from Transport (shouldn't happen, but for safety)
-        const transportPos = Tone.getTransport().position;
-        transportPosition = typeof transportPos === 'number' 
-          ? transportPos 
-          : Tone.Time(transportPos).toSeconds();
-      }
-      
-      // Use the same calculation as pause(): Math.floor for consistent forward snapping
-      const stepPosition = transportPosition / stepDuration;
-      const snappedStepIndex = Math.floor((stepPosition % totalSteps));
-      setPlayheadPosition(snappedStepIndex);
+      // Use exact pausedPosition (no snapping - shows real-time position)
+      const stepPosition = pausedPosition / stepDuration;
+      const normalizedPosition = stepPosition % totalSteps;
+      setPlayheadPosition(normalizedPosition);
       return;
     }
 
@@ -358,14 +344,13 @@ export function StepSequencer() {
         return;
       }
 
-      // Get current Transport position in seconds
-      // Transport.position can be a number (seconds) or string (Bars:Beats:Sixteenths)
+      // Get current Transport position in seconds (single source of truth)
       const transportPos = Tone.getTransport().position;
       const transportPosition = typeof transportPos === 'number' 
         ? transportPos 
         : Tone.Time(transportPos).toSeconds();
       
-      // Calculate current step position (can be fractional for smooth movement)
+      // Calculate current step position (fractional for smooth movement)
       const stepPosition = transportPosition / stepDuration;
       
       // Handle loop (modulo totalSteps)
@@ -383,7 +368,7 @@ export function StepSequencer() {
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [isPlaying, isPaused, currentPattern, bpm, currentStep]);
+  }, [isPlaying, isPaused, currentPattern, bpm, pausedPosition]);
 
   if (!currentPattern) {
     return (
