@@ -29,8 +29,6 @@ interface StepCellProps {
   finger?: FingerDesignation;
   /** Whether this is the first step in a beat (for visual separator) */
   isFirstInBeat: boolean;
-  /** Whether this step is the current playhead position (Story 3.6) */
-  isCurrentStep?: boolean;
   /** Cell width for zoom */
   cellWidth?: number;
 }
@@ -67,7 +65,6 @@ export const StepCell = memo(function StepCell({
   active,
   finger,
   isFirstInBeat,
-  isCurrentStep = false,
   cellWidth = 28,
 }: StepCellProps) {
   const toggleStep = usePatternStore((state) => state.toggleStep);
@@ -127,15 +124,12 @@ export const StepCell = memo(function StepCell({
           flex items-center justify-center
           text-xs font-bold
           focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-slate-900
-          ${isCurrentStep ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-slate-900' : ''}
           ${
             active && colors
               ? `${colors.bg} ${colors.border} ${colors.hover} ${colors.ring} ${colors.text}`
               : active
                 ? 'bg-amber-500/80 border-amber-400 hover:bg-amber-400 focus:ring-amber-400 text-amber-100'
-                : isCurrentStep
-                  ? 'bg-emerald-900/50 border-emerald-600 hover:bg-slate-700 focus:ring-slate-400'
-                  : 'bg-slate-800 border-slate-700 hover:bg-slate-700 focus:ring-slate-400'
+                : 'bg-slate-800 border-slate-700 hover:bg-slate-700 focus:ring-slate-400'
           }
         `}
         style={{ width: cellWidth }}

@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { PadVisualizer } from './components/visualization/PadVisualizer';
 import { StepSequencer } from './components/sequencer';
 import { PlaybackControls } from './components/playback';
-import { ShareButton } from './components/sharing';
+import { ShareButton, GitHubLink } from './components/sharing';
 import { useAudioStore } from './stores/useAudioStore';
 import { APP_VERSION } from './config/version';
 import { usePlaybackStore } from './stores/usePlaybackStore';
@@ -21,8 +21,10 @@ import { useUrlPatternLoader, useUrlSync } from './hooks';
  * Story 4.3: URL Pattern Loading
  */
 function App() {
-  const { isAudioReady, isLoading, initAudio } = useAudioStore();
-  const toggle = usePlaybackStore((state) => state.toggle);
+  const { isAudioReady, isLoading: isAudioLoading, error: audioError, initAudio } = useAudioStore();
+  const isPlaying = usePlaybackStore((state) => state.isPlaying);
+  const play = usePlaybackStore((state) => state.play);
+  const pause = usePlaybackStore((state) => state.pause);
   const adjustBpm = usePlaybackStore((state) => state.adjustBpm);
 
   // Story 4.3: Load pattern from URL
@@ -33,10 +35,10 @@ function App() {
 
   // Initialize audio on first click anywhere in the app
   const handleFirstInteraction = useCallback(() => {
-    if (!isAudioReady && !isLoading) {
+    if (!isAudioReady && !isAudioLoading) {
       initAudio();
     }
-  }, [isAudioReady, isLoading, initAudio]);
+  }, [isAudioReady, isAudioLoading, initAudio]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -48,10 +50,14 @@ function App() {
         return;
       }
 
-      // Space: Toggle play/stop
+      // Space: Toggle play/pause
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault(); // Prevent page scroll
-        toggle();
+        if (isPlaying) {
+          pause();
+        } else {
+          play();
+        }
         return;
       }
 
@@ -70,21 +76,22 @@ function App() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggle, adjustBpm]);
+  }, [isPlaying, play, pause, adjustBpm]);
 
   return (
     <div
       className="h-screen bg-slate-950 text-slate-50 flex flex-col overflow-hidden"
       onClick={handleFirstInteraction}
     >
-      {/* Header: Title + PlaybackControls (center) + ShareButton */}
-      <header className="border-b border-slate-800 px-4 lg:px-6 py-3 shrink-0">
+      {/* Header: Title + PlaybackControls (center) + GitHub + Share */}
+      <header className="border-b border-slate-800 px-4 lg:px-6 py-4 shrink-0">
         <div className="flex items-center">
-          {/* Left: Title (fixed width to balance right side) */}
-          <div className="w-32 lg:w-40 shrink-0">
+          {/* Left: Title + Version (fixed width to balance right side) */}
+          <div className="w-32 lg:w-40 shrink-0 flex items-center gap-2">
             <h1 className="text-base lg:text-lg font-semibold tracking-tight">
               FGDP Trainer
             </h1>
+            <span className="text-xs text-slate-400 hidden sm:inline">v{APP_VERSION}</span>
           </div>
 
           {/* Center: Playback Controls */}
@@ -92,10 +99,10 @@ function App() {
             <PlaybackControls />
           </div>
 
-          {/* Right: Share + Version (fixed width to match left) */}
-          <div className="w-32 lg:w-40 shrink-0 flex items-center justify-end gap-3">
+          {/* Right: GitHub + Share (fixed width to match left) */}
+          <div className="w-32 lg:w-40 shrink-0 flex items-center justify-end gap-2">
+            <GitHubLink />
             <ShareButton />
-            <span className="text-xs text-slate-400 hidden sm:inline">v{APP_VERSION}</span>
           </div>
         </div>
       </header>
@@ -135,6 +142,32 @@ function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+        </div>
+      )}
+
+      {/* Audio Status Toast */}
+      {!isAudioReady && !isAudioLoading && !audioError && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 text-sm rounded-lg shadow-lg z-50"
+          role="status"
+        >
+          Click anywhere to enable audio
+        </div>
+      )}
+      {isAudioLoading && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-amber-600 text-white text-sm rounded-lg shadow-lg flex items-center gap-2 z-50"
+          role="status"
+        >
+          <span className="animate-pulse">Loading audio...</span>
+        </div>
+      )}
+      {audioError && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-rose-600 text-white text-sm rounded-lg shadow-lg z-50"
+          role="alert"
+        >
+          {audioError}
         </div>
       )}
     </div>
