@@ -20,6 +20,7 @@ import * as Tone from 'tone';
 import { Draw } from 'tone';
 import { usePatternStore } from './usePatternStore';
 import { useAudioStore } from './useAudioStore';
+import { getStepsPerBeat } from '../types/pattern';
 import type { PadId } from '../config/padMapping';
 import type { Subdivision } from '../types/pattern';
 
@@ -33,14 +34,20 @@ const MAX_BPM = 200;
 interface PlaybackStore {
   /** Whether pattern is currently playing */
   isPlaying: boolean;
+  /** Whether playback is paused (distinct from stopped) */
+  isPaused: boolean;
   /** Current step position (0-15) */
   currentStep: number;
   /** Tempo in BPM */
   bpm: number;
+  /** Saved Transport position when paused (in seconds) */
+  pausedPosition: number;
 
   /** Start playback */
   play: () => void;
-  /** Stop playback */
+  /** Pause playback (maintains position) */
+  pause: () => void;
+  /** Stop playback (resets position) */
   stop: () => void;
   /** Toggle play/stop */
   toggle: () => void;
@@ -68,8 +75,10 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
 
   return {
     isPlaying: false,
+    isPaused: false,
     currentStep: 0,
     bpm: DEFAULT_BPM,
+    pausedPosition: 0,
 
     play: () => {
       const state = get();
@@ -85,50 +94,114 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       const pattern = usePatternStore.getState().currentPattern;
       const subdivision: Subdivision = pattern?.subdivision ?? '16n';
       const totalSteps = pattern?.tracks[0]?.steps.length ?? 16;
+      const stepsPerBeat = getStepsPerBeat(subdivision);
+      const bpm = state.bpm;
 
-      // Schedule step advance based on pattern subdivision
-      // Timing Fix: Use Web Audio API's precise scheduling via `time` parameter
-      // This ensures sample-accurate playback instead of relying on JS event loop
+      // Calculate step duration in seconds
+      const stepDuration = (60 / bpm) / stepsPerBeat;
+      
+      // Restore Transport.position if resuming from pause
+      let transportPosition: number;
+      if (state.isPaused && state.pausedPosition > 0) {
+        // Restore exact paused position (no snapping)
+        Tone.getTransport().position = state.pausedPosition;
+        transportPosition = state.pausedPosition;
+      } else {
+        // Get current Transport.position (should be 0 for fresh start)
+        const transportPos = Tone.getTransport().position;
+        transportPosition = typeof transportPos === 'number' 
+          ? transportPos 
+          : Tone.Time(transportPos).toSeconds();
+      }
+      
+      // Calculate current step from transport position
+      const currentStepFloat = transportPosition / stepDuration;
+      const calculatedStep = Math.floor(currentStepFloat % totalSteps);
+      
+      // Calculate time until next step boundary
+      const positionInStep = transportPosition % stepDuration;
+      const isAtStepBoundary = positionInStep === 0;
+      const timeUntilNextStep = isAtStepBoundary ? 0 : stepDuration - positionInStep;
+
+      // Determine which step to play first
+      // If at step boundary, play current step; otherwise, wait for next step
+      let nextStepToPlay = isAtStepBoundary ? calculatedStep : (calculatedStep + 1) % totalSteps;
+      
+      // Update state
+      set({ currentStep: calculatedStep, pausedPosition: 0 });
+
+      // Schedule step playback based on pattern subdivision
+      // State-based step tracking for consistency with Transport.position
       scheduleId = Tone.getTransport().scheduleRepeat(
         (time) => {
-          const currentStep = get().currentStep;
           const currentPattern = usePatternStore.getState().currentPattern;
           const currentTotalSteps = currentPattern?.tracks[0]?.steps.length ?? 16;
-          const nextStep = (currentStep + 1) % currentTotalSteps;
 
-          // Story 3.5: Play sounds for active notes in the current step
+          // Use tracked step (not calculated from time)
+          const stepToPlay = nextStepToPlay;
+
+          // Play sounds for active notes in this step
           const { playPad, isAudioReady } = useAudioStore.getState();
 
           if (currentPattern && isAudioReady) {
-            // Play all active notes for this step (polyphonic)
-            // Pass `time` for precise audio scheduling
             currentPattern.tracks.forEach((track) => {
-              const step = track.steps[currentStep];
+              const step = track.steps[stepToPlay];
               if (step?.active) {
                 playPad(track.padId as PadId, time);
               }
             });
           }
 
+          // Update step for next callback
+          nextStepToPlay = (stepToPlay + 1) % currentTotalSteps;
+
           // Use Tone.Draw to sync visual updates with audio timing
-          // This schedules the state update to happen at the correct visual frame
-          // aligned with the audio event, reducing audio-visual desync
           Draw.schedule(() => {
-            set({ currentStep: nextStep });
+            set({ currentStep: stepToPlay });
           }, time);
         },
         subdivision,
-        0 // Start immediately
+        timeUntilNextStep // Start at next step boundary (0 if at boundary)
       );
 
       // Start transport
       Tone.getTransport().start();
-      set({ isPlaying: true });
+      
+      set({ isPlaying: true, isPaused: false });
+    },
+
+    pause: () => {
+      const state = get();
+      if (!state.isPlaying) return;
+
+      // Get current Transport.position (no snapping - store exact position)
+      const transportPos = Tone.getTransport().position;
+      const transportPosition = typeof transportPos === 'number' 
+        ? transportPos 
+        : Tone.Time(transportPos).toSeconds();
+
+      // Stop transport
+      Tone.getTransport().stop();
+
+      // Clear scheduled event
+      if (scheduleId !== null) {
+        Tone.getTransport().clear(scheduleId);
+        scheduleId = null;
+      }
+
+      // Store exact position without snapping
+      // Playhead will display real-time position from pausedPosition
+      set({ 
+        isPlaying: false, 
+        isPaused: true, 
+        pausedPosition: transportPosition
+      });
     },
 
     stop: () => {
       const state = get();
-      if (!state.isPlaying) return;
+      // Allow stop from both playing and paused states
+      if (!state.isPlaying && !state.isPaused) return;
 
       // Stop transport
       Tone.getTransport().stop();
@@ -142,7 +215,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       // Reset position
       Tone.getTransport().position = 0;
 
-      set({ isPlaying: false, currentStep: 0 });
+      set({ isPlaying: false, isPaused: false, currentStep: 0, pausedPosition: 0 });
     },
 
     toggle: () => {

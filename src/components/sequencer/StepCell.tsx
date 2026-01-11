@@ -129,7 +129,7 @@ export const StepCell = memo(function StepCell({
               ? `${colors.bg} ${colors.border} ${colors.hover} ${colors.ring} ${colors.text}`
               : active
                 ? 'bg-amber-500/80 border-amber-400 hover:bg-amber-400 focus:ring-amber-400 text-amber-100'
-                : 'bg-slate-800 border-slate-700 hover:bg-slate-700 focus:ring-slate-400'
+                  : 'bg-slate-800 border-slate-700 hover:bg-slate-700 focus:ring-slate-400'
           }
         `}
         style={{ width: cellWidth }}
