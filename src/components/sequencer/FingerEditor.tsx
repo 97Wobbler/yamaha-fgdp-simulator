@@ -17,6 +17,8 @@ interface FingerEditorProps {
   onClose: () => void;
   /** Position for the popover */
   position: { x: number; y: number };
+  /** Dark theme mode */
+  isDark?: boolean;
 }
 
 const HANDS: Array<'L' | 'R'> = ['L', 'R'];
@@ -30,6 +32,7 @@ export const FingerEditor = memo(function FingerEditor({
   onFingerChange,
   onClose,
   position,
+  isDark = true,
 }: FingerEditorProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -76,14 +79,24 @@ export const FingerEditor = memo(function FingerEditor({
     [currentFinger.hand, onFingerChange, onClose]
   );
 
+  // Theme-aware styles
+  const popoverStyle = isDark
+    ? 'bg-slate-800 border-slate-600'
+    : 'bg-white border-slate-300';
+  const labelStyle = isDark ? 'text-slate-400' : 'text-slate-500';
+  const inactiveButtonStyle = isDark
+    ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+    : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+
   return (
     <div
       ref={popoverRef}
-      className="
+      className={`
         fixed z-50
-        bg-slate-800 border border-slate-600 rounded-lg shadow-xl
+        border rounded-lg shadow-xl
         p-3 min-w-[140px]
-      "
+        ${popoverStyle}
+      `}
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
@@ -93,7 +106,7 @@ export const FingerEditor = memo(function FingerEditor({
     >
       {/* Hand selection */}
       <div className="mb-3">
-        <div className="text-xs text-slate-400 mb-1">Hand</div>
+        <div className={`text-xs mb-1 ${labelStyle}`}>Hand</div>
         <div className="flex gap-1">
           {HANDS.map((hand) => (
             <button
@@ -108,7 +121,7 @@ export const FingerEditor = memo(function FingerEditor({
                     ? hand === 'R'
                       ? 'bg-rose-500 text-white'
                       : 'bg-sky-500 text-white'
-                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    : inactiveButtonStyle
                 }
               `}
             >
@@ -120,7 +133,7 @@ export const FingerEditor = memo(function FingerEditor({
 
       {/* Finger selection */}
       <div>
-        <div className="text-xs text-slate-400 mb-1">Finger</div>
+        <div className={`text-xs mb-1 ${labelStyle}`}>Finger</div>
         <div className="flex gap-1">
           {FINGERS.map((finger) => (
             <button
@@ -135,7 +148,7 @@ export const FingerEditor = memo(function FingerEditor({
                     ? currentFinger.hand === 'R'
                       ? 'bg-rose-500 text-white'
                       : 'bg-sky-500 text-white'
-                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    : inactiveButtonStyle
                 }
               `}
             >

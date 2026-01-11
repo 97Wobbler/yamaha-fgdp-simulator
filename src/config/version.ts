@@ -1,7 +1,9 @@
 /**
  * Application Version
  *
- * Single source of truth for version display across the app.
- * Update this when releasing new versions.
+ * Reads version from package.json via Vite's define plugin.
+ * Only update package.json when releasing new versions.
  */
-export const APP_VERSION = '1.0.1';
+declare const __APP_VERSION__: string;
+
+export const APP_VERSION = __APP_VERSION__;

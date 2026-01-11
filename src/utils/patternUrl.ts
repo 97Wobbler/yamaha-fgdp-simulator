@@ -16,7 +16,7 @@
 
 import type { DrumPattern, Subdivision } from '../types/pattern';
 import { getTotalSteps } from '../types/pattern';
-import { PAD_IDS, FINGER_DEFAULTS, type PadId } from '../config/padMapping';
+import { PAD_IDS, PADS, FINGER_DEFAULTS, type PadId } from '../config/padMapping';
 import pako from 'pako';
 
 /** Maximum allowed encoded string length */
@@ -210,7 +210,7 @@ function fromBinary(data: Uint8Array): DrumPattern | null {
     // Create tracks and read bitmaps
     const tracks = PAD_IDS.map((padId) => ({
       padId,
-      label: padId.replace(/_/g, ' '),
+      label: PADS[padId].label,
       defaultFinger: FINGER_DEFAULTS[padId as PadId],
       steps: Array.from({ length: totalSteps }, () => ({
         active: false,

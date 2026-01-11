@@ -3,7 +3,11 @@ import { PadVisualizer } from './components/visualization/PadVisualizer';
 import { StepSequencer } from './components/sequencer';
 import { PlaybackControls } from './components/playback';
 import { ShareButton, GitHubLink } from './components/sharing';
+import { ToastContainer } from './components/ui/Toast';
+import { ThemeToggle } from './components/ui/ThemeToggle';
 import { useAudioStore } from './stores/useAudioStore';
+import { useToastStore } from './stores/useToastStore';
+import { useThemeStore } from './stores/useThemeStore';
 import { APP_VERSION } from './config/version';
 import { usePlaybackStore } from './stores/usePlaybackStore';
 import { useUrlPatternLoader, useUrlSync } from './hooks';
@@ -11,8 +15,8 @@ import { useUrlPatternLoader, useUrlSync } from './hooks';
 /**
  * Main Application Layout
  *
- * New Layout (2025-01):
- * - Header: Title (left) + PlaybackControls (center) + ShareButton (right)
+ * Layout:
+ * - Header: Title + Version + GitHub (left) | PlaybackControls (center) | Share + Theme (right)
  * - Main: Step Sequencer (top, ~60%) + Visualizer (bottom, ~40%)
  * - No footer, no page scroll (viewport fixed)
  *
@@ -22,13 +26,29 @@ import { useUrlPatternLoader, useUrlSync } from './hooks';
  */
 function App() {
   const { isAudioReady, isLoading: isAudioLoading, error: audioError, initAudio } = useAudioStore();
+  const showToast = useToastStore((state) => state.showToast);
+  const theme = useThemeStore((state) => state.theme);
   const isPlaying = usePlaybackStore((state) => state.isPlaying);
   const play = usePlaybackStore((state) => state.play);
   const pause = usePlaybackStore((state) => state.pause);
   const adjustBpm = usePlaybackStore((state) => state.adjustBpm);
 
   // Story 4.3: Load pattern from URL
-  const { error: urlError, clearError: clearUrlError } = useUrlPatternLoader();
+  const { error: urlError } = useUrlPatternLoader();
+
+  // Show URL error as toast
+  useEffect(() => {
+    if (urlError) {
+      showToast(urlError, 'error');
+    }
+  }, [urlError, showToast]);
+
+  // Show audio error as toast
+  useEffect(() => {
+    if (audioError) {
+      showToast(audioError, 'error');
+    }
+  }, [audioError, showToast]);
 
   // Story 4.6: Sync pattern changes to URL in real-time
   useUrlSync();
@@ -78,20 +98,31 @@ function App() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isPlaying, play, pause, adjustBpm]);
 
+  const isDark = theme === 'fgdp-50';
+
   return (
     <div
-      className="h-screen bg-slate-950 text-slate-50 flex flex-col overflow-hidden"
+      className={`h-screen flex flex-col overflow-hidden ${
+        isDark
+          ? 'bg-slate-950 text-slate-50'
+          : 'bg-slate-100 text-slate-900'
+      }`}
       onClick={handleFirstInteraction}
     >
-      {/* Header: Title + PlaybackControls (center) + GitHub + Share */}
-      <header className="border-b border-slate-800 px-4 lg:px-6 py-4 shrink-0">
+      {/* Header: Title + Version + GitHub (left) | PlaybackControls (center) | Share + Theme (right) */}
+      <header className={`px-4 lg:px-6 py-4 shrink-0 border-b ${
+        isDark ? 'border-slate-800' : 'border-slate-300'
+      }`}>
         <div className="flex items-center">
-          {/* Left: Title + Version (fixed width to balance right side) */}
-          <div className="w-32 lg:w-40 shrink-0 flex items-center gap-2">
+          {/* Left: Title + Version + GitHub */}
+          <div className="w-40 lg:w-48 shrink-0 flex items-center gap-2">
             <h1 className="text-base lg:text-lg font-semibold tracking-tight">
               FGDP Trainer
             </h1>
-            <span className="text-xs text-slate-400 hidden sm:inline">v{APP_VERSION}</span>
+            <span className={`text-xs hidden sm:inline ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              v{APP_VERSION}
+            </span>
+            <GitHubLink />
           </div>
 
           {/* Center: Playback Controls */}
@@ -99,10 +130,10 @@ function App() {
             <PlaybackControls />
           </div>
 
-          {/* Right: GitHub + Share (fixed width to match left) */}
-          <div className="w-32 lg:w-40 shrink-0 flex items-center justify-end gap-2">
-            <GitHubLink />
+          {/* Right: Share + Theme */}
+          <div className="w-40 lg:w-48 shrink-0 flex items-center justify-end gap-2">
             <ShareButton />
+            <ThemeToggle />
           </div>
         </div>
       </header>
@@ -111,7 +142,11 @@ function App() {
       <main className="flex-1 flex flex-col min-h-0 p-4 lg:p-6 gap-4">
         {/* Top: Step Sequencer (~60%, internal scroll) */}
         <section
-          className="flex-[3] min-h-0 bg-slate-900 rounded-lg border border-slate-800 overflow-auto"
+          className={`flex-[3] min-h-0 rounded-lg border overflow-auto ${
+            isDark
+              ? 'bg-slate-900 border-slate-800'
+              : 'bg-white border-slate-300'
+          }`}
           aria-label="Step Sequencer Section"
         >
           <StepSequencer />
@@ -126,29 +161,14 @@ function App() {
         </section>
       </main>
 
-      {/* Story 4.3: URL Error Toast */}
-      {urlError && (
-        <div
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-rose-600 text-white text-sm rounded-lg shadow-lg flex items-center gap-2 z-50"
-          role="alert"
-        >
-          <span>{urlError}</span>
-          <button
-            onClick={clearUrlError}
-            className="ml-2 hover:bg-rose-700 rounded p-1"
-            aria-label="Close"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      )}
-
-      {/* Audio Status Toast */}
+      {/* Audio Status Indicator */}
       {!isAudioReady && !isAudioLoading && !audioError && (
         <div
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 text-sm rounded-lg shadow-lg z-50"
+          className={`fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 text-sm rounded-lg shadow-lg z-40 ${
+            isDark
+              ? 'bg-slate-800 border border-slate-700 text-slate-300'
+              : 'bg-white border border-slate-300 text-slate-600'
+          }`}
           role="status"
         >
           Click anywhere to enable audio
@@ -156,20 +176,15 @@ function App() {
       )}
       {isAudioLoading && (
         <div
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-amber-600 text-white text-sm rounded-lg shadow-lg flex items-center gap-2 z-50"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-amber-600 text-white text-sm rounded-lg shadow-lg flex items-center gap-2 z-40"
           role="status"
         >
           <span className="animate-pulse">Loading audio...</span>
         </div>
       )}
-      {audioError && (
-        <div
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-rose-600 text-white text-sm rounded-lg shadow-lg z-50"
-          role="alert"
-        >
-          {audioError}
-        </div>
-      )}
+
+      {/* Toast Notifications */}
+      <ToastContainer />
     </div>
   );
 }

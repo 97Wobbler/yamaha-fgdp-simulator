@@ -9,7 +9,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { usePatternStore } from '../../stores/usePatternStore';
 
-export function PatternNameEditor() {
+interface PatternNameEditorProps {
+  isDark?: boolean;
+}
+
+export function PatternNameEditor({ isDark = true }: PatternNameEditorProps) {
   const currentPattern = usePatternStore((state) => state.currentPattern);
   const setPatternName = usePatternStore((state) => state.setPatternName);
 
@@ -55,6 +59,14 @@ export function PatternNameEditor() {
     return null;
   }
 
+  const inputStyle = isDark
+    ? 'text-slate-200 bg-slate-800 border-slate-600 focus:border-emerald-500'
+    : 'text-slate-800 bg-white border-slate-300 focus:border-emerald-500';
+
+  const buttonStyle = isDark
+    ? 'text-slate-200 hover:text-white hover:bg-slate-800'
+    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200';
+
   if (isEditing) {
     return (
       <input
@@ -64,7 +76,7 @@ export function PatternNameEditor() {
         onChange={(e) => setEditValue(e.target.value)}
         onBlur={handleSave}
         onKeyDown={handleKeyDown}
-        className="text-sm font-medium text-slate-200 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 w-48"
+        className={`text-sm font-medium border rounded px-2 py-0.5 outline-none focus:ring-1 focus:ring-emerald-500 w-48 ${inputStyle}`}
         placeholder="Pattern name"
         maxLength={50}
       />
@@ -74,7 +86,7 @@ export function PatternNameEditor() {
   return (
     <button
       onClick={handleStartEdit}
-      className="text-sm font-medium text-slate-200 hover:text-white hover:bg-slate-800 rounded px-2 py-0.5 transition-colors cursor-text"
+      className={`text-sm font-medium rounded px-2 py-0.5 transition-colors cursor-text ${buttonStyle}`}
       title="Click to edit name"
     >
       {currentPattern.name}

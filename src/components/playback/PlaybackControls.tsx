@@ -8,6 +8,7 @@
 import { memo, useCallback, type ChangeEvent, type KeyboardEvent } from 'react';
 import { usePlaybackStore, MIN_BPM, MAX_BPM } from '../../stores/usePlaybackStore';
 import { useAudioStore } from '../../stores/useAudioStore';
+import { useThemeStore } from '../../stores/useThemeStore';
 
 /**
  * Play icon (triangle pointing right)
@@ -64,6 +65,8 @@ function StopIcon() {
 export const PlaybackControls = memo(function PlaybackControls() {
   const { isPlaying, isPaused, play, pause, stop, bpm, setBpm, adjustBpm } = usePlaybackStore();
   const { isAudioReady, isLoading: isAudioLoading, initAudio } = useAudioStore();
+  const theme = useThemeStore((state) => state.theme);
+  const isDark = theme === 'fgdp-50';
 
   // Disable playback if audio not ready
   const canPlay = isAudioReady && !isAudioLoading;
@@ -112,6 +115,13 @@ export const PlaybackControls = memo(function PlaybackControls() {
     [adjustBpm]
   );
 
+  // Theme-aware button styles
+  const buttonBase = isDark
+    ? 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+    : 'bg-slate-200 hover:bg-slate-300 text-slate-700';
+
+  const ringOffset = isDark ? 'focus:ring-offset-slate-900' : 'focus:ring-offset-slate-100';
+
   return (
     <div className="flex items-center gap-2">
       {/* Play Button */}
@@ -123,13 +133,11 @@ export const PlaybackControls = memo(function PlaybackControls() {
           flex items-center justify-center
           w-10 h-10 rounded-full
           transition-colors
-          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900
+          focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringOffset}
           ${
             isPlaying
-              ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-              : canPlay
-                ? 'bg-emerald-500 hover:bg-emerald-400 focus:ring-emerald-400 text-white'
-                : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+              ? 'bg-emerald-500 text-white ring-2 ring-emerald-400'
+              : `${buttonBase} focus:ring-slate-400`
           }
         `}
         aria-label="Start playback"
@@ -146,13 +154,12 @@ export const PlaybackControls = memo(function PlaybackControls() {
           flex items-center justify-center
           w-10 h-10 rounded-full
           transition-colors
-          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900
+          focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringOffset}
           ${
             isPaused
-              ? 'bg-amber-500 hover:bg-amber-400 focus:ring-amber-400 text-white ring-2 ring-amber-400'
-              : 'bg-slate-700 hover:bg-slate-600 focus:ring-slate-400 text-slate-300'
+              ? 'bg-amber-500 text-white ring-2 ring-amber-400'
+              : `${buttonBase} focus:ring-slate-400`
           }
-          disabled:opacity-50 disabled:cursor-not-allowed
         `}
         aria-label="Pause playback"
       >
@@ -164,14 +171,13 @@ export const PlaybackControls = memo(function PlaybackControls() {
         type="button"
         onClick={stop}
         disabled={(!isPlaying && !isPaused) || !canPlay}
-        className="
+        className={`
           flex items-center justify-center
           w-10 h-10 rounded-full
           transition-colors
-          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900
-          bg-slate-700 hover:bg-slate-600 focus:ring-slate-400 text-slate-300
-          disabled:opacity-50 disabled:cursor-not-allowed
-        "
+          focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringOffset}
+          ${buttonBase} focus:ring-slate-400
+        `}
         aria-label="Stop playback"
       >
         <StopIcon />
@@ -182,19 +188,18 @@ export const PlaybackControls = memo(function PlaybackControls() {
         <button
           type="button"
           onClick={() => adjustBpm(-5)}
-          className="
-            w-6 h-6 rounded
-            bg-slate-700 hover:bg-slate-600
-            text-slate-300 text-sm font-bold
+          className={`
+            w-6 h-6 rounded text-sm font-bold
             focus:outline-none focus:ring-2 focus:ring-slate-400
-          "
+            ${buttonBase}
+          `}
           aria-label="Decrease BPM by 5"
         >
           -
         </button>
 
         <div className="flex items-center gap-1">
-          <label htmlFor="bpm-input" className="text-slate-400 text-sm">
+          <label htmlFor="bpm-input" className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
             BPM:
           </label>
           <input
@@ -205,13 +210,15 @@ export const PlaybackControls = memo(function PlaybackControls() {
             onKeyDown={handleBpmKeyDown}
             min={MIN_BPM}
             max={MAX_BPM}
-            className="
-              w-14 px-1 py-0.5
-              bg-slate-800 border border-slate-600 rounded
-              text-slate-200 text-sm font-mono text-center
-              focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400
+            className={`
+              w-14 px-1 py-0.5 rounded text-sm font-mono text-center
+              focus:outline-none focus:ring-2 focus:ring-slate-400
               [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none
-            "
+              ${isDark
+                ? 'bg-slate-800 border border-slate-600 text-slate-200 focus:border-slate-400'
+                : 'bg-white border border-slate-300 text-slate-800 focus:border-slate-400'
+              }
+            `}
             aria-label={`BPM: ${bpm}. Use arrow keys to adjust.`}
           />
         </div>
@@ -219,12 +226,11 @@ export const PlaybackControls = memo(function PlaybackControls() {
         <button
           type="button"
           onClick={() => adjustBpm(5)}
-          className="
-            w-6 h-6 rounded
-            bg-slate-700 hover:bg-slate-600
-            text-slate-300 text-sm font-bold
+          className={`
+            w-6 h-6 rounded text-sm font-bold
             focus:outline-none focus:ring-2 focus:ring-slate-400
-          "
+            ${buttonBase}
+          `}
           aria-label="Increase BPM by 5"
         >
           +

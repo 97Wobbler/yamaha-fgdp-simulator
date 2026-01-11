@@ -6,6 +6,8 @@
  * - Icon-only button for space efficiency
  */
 
+import { useThemeStore } from '../../stores/useThemeStore';
+
 /**
  * GitHub icon (mark/logo)
  */
@@ -29,17 +31,23 @@ function GitHubIcon({ className }: { className?: string }) {
 const GITHUB_REPO_URL = 'https://github.com/97wobbler/yamaha-fgdp-simulator';
 
 export function GitHubLink() {
+  const theme = useThemeStore((state) => state.theme);
+  const isDark = theme === 'fgdp-50';
+
   return (
     <a
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="
+      className={`
         flex items-center justify-center
-        text-slate-400 hover:text-slate-200
         transition-colors duration-200
-        focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-900 rounded
-      "
+        focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 rounded
+        ${isDark
+          ? 'text-slate-400 hover:text-slate-200 focus:ring-offset-slate-900'
+          : 'text-slate-500 hover:text-slate-700 focus:ring-offset-slate-100'
+        }
+      `}
       aria-label="View source code on GitHub"
       title="View source code on GitHub"
     >

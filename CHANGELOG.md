@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-01-11
+
+### Added
+- Light/Dark theme support (FGDP-30/FGDP-50 naming)
+- Theme toggle button with sun/moon icon and tooltip
+- Toast notification system for user feedback
+- Alternating beat background colors for improved grid readability
+
+### Changed
+- Header layout: left (title + GitHub) / center (playback) / right (share + theme)
+- Playback buttons: neutral colors by default, colored only when active state
+- Removed opacity/cursor styling from disabled buttons for cleaner UI
+- Themed scrollbars for both Webkit and Firefox browsers
+- Toast messages now have theme-aware styles
+
+### Fixed
+- Track labels now display correctly when loading patterns from URL
+
 ## [1.0.1] - 2026-01-11
 
 ### Added
@@ -33,5 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard shortcuts (Space for play/stop, arrows for BPM)
 - GitHub Pages deployment workflow
 
+[1.0.2]: https://github.com/97wobbler/yamaha-fgdp-simulator/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/97wobbler/yamaha-fgdp-simulator/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/97wobbler/yamaha-fgdp-simulator/releases/tag/v1.0.0

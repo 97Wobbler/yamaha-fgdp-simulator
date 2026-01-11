@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { encodePattern, decodePattern, MAX_ENCODED_LENGTH } from './patternUrl';
 import type { DrumPattern, PatternTrack } from '../types/pattern';
-import { PAD_IDS, FINGER_DEFAULTS, type PadId } from '../config/padMapping';
+import { PAD_IDS, PADS, FINGER_DEFAULTS, type PadId } from '../config/padMapping';
 
 // Helper to create a minimal valid pattern using PAD_IDS structure
 function createTestPattern(
@@ -25,7 +25,7 @@ function createTestPattern(
 
   const tracks: PatternTrack[] = PAD_IDS.map((padId) => ({
     padId,
-    label: padId.replace(/_/g, ' '),
+    label: PADS[padId].label,
     defaultFinger: FINGER_DEFAULTS[padId as PadId],
     steps: Array.from({ length: totalSteps }, () => ({
       active: false,

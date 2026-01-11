@@ -12,6 +12,7 @@ import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 import { usePatternStore } from '../../stores/usePatternStore';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
+import { useThemeStore } from '../../stores/useThemeStore';
 import { StepCell } from './StepCell';
 import { PatternNameEditor } from './PatternNameEditor';
 import { getStepsPerBeat, type FingerDesignation, type Subdivision } from '../../types/pattern';
@@ -49,13 +50,19 @@ interface StepHeaderProps {
   totalSteps: number;
   stepsPerBeat: number;
   cellWidth: number;
+  isDark: boolean;
 }
 
-const StepHeader = memo(function StepHeader({ totalSteps, stepsPerBeat, cellWidth }: StepHeaderProps) {
+const StepHeader = memo(function StepHeader({ totalSteps, stepsPerBeat, cellWidth, isDark }: StepHeaderProps) {
+  const bgColor = isDark ? 'bg-slate-900' : 'bg-slate-50';
+  const borderColor = isDark ? 'border-slate-600' : 'border-slate-400';
+  const textColor = isDark ? 'text-slate-400' : 'text-slate-600';
+  const subTextColor = isDark ? 'text-slate-600' : 'text-slate-400';
+
   return (
-    <div className="sticky top-0 z-20 flex bg-slate-900">
+    <div className={`sticky top-0 z-20 flex ${bgColor}`}>
       {/* Empty cell above track labels - also sticky left */}
-      <div className="sticky left-0 z-30 w-24 shrink-0 bg-slate-900" />
+      <div className={`sticky left-0 z-30 w-24 shrink-0 ${bgColor}`} />
       {/* Step number headers */}
       <div className="flex gap-x-0.5">
         {Array.from({ length: totalSteps }, (_, i) => {
@@ -69,8 +76,8 @@ const StepHeader = memo(function StepHeader({ totalSteps, stepsPerBeat, cellWidt
                 flex items-center justify-center
                 font-mono
                 h-6
-                bg-slate-900
-                ${isFirstInBeat ? 'border-l-2 border-slate-600 text-slate-400 text-xs' : 'text-slate-600 text-[10px]'}
+                ${bgColor}
+                ${isFirstInBeat ? `border-l-2 ${borderColor} ${textColor} text-xs` : `${subTextColor} text-[10px]`}
               `}
               style={{ width: cellWidth }}
               title={`Bar ${Math.floor(i / (stepsPerBeat * 4)) + 1}, Beat ${Math.floor((i % (stepsPerBeat * 4)) / stepsPerBeat) + 1}, Step ${(i % stepsPerBeat) + 1}`}
@@ -97,6 +104,7 @@ interface TrackRowProps {
   stepsPerBeat: number;
   /** Cell width for zoom */
   cellWidth: number;
+  isDark: boolean;
 }
 
 const TrackRow = memo(function TrackRow({
@@ -107,21 +115,26 @@ const TrackRow = memo(function TrackRow({
   steps,
   stepsPerBeat,
   cellWidth,
+  isDark,
 }: TrackRowProps) {
+  const bgColor = isDark ? 'bg-slate-900' : 'bg-slate-50';
+  const textColor = isDark ? 'text-slate-300' : 'text-slate-700';
+  const borderColor = isDark ? 'border-slate-700' : 'border-slate-300';
+
   return (
     <div className="flex">
       {/* Track label - sticky on horizontal scroll */}
       <div
-        className="
+        className={`
           sticky left-0 z-10
           flex items-center
           px-2
-          bg-slate-900
-          text-xs text-slate-300
-          border-r border-slate-700
+          ${bgColor}
+          text-xs ${textColor}
+          border-r ${borderColor}
           w-24 shrink-0
           truncate
-        "
+        `}
         title={label}
       >
         <span className="hidden sm:inline">{label}</span>
@@ -138,7 +151,9 @@ const TrackRow = memo(function TrackRow({
             active={step.active}
             finger={step.finger}
             isFirstInBeat={stepIndex % stepsPerBeat === 0}
+            stepsPerBeat={stepsPerBeat}
             cellWidth={cellWidth}
+            isDark={isDark}
           />
         ))}
       </div>
@@ -153,23 +168,30 @@ interface BarsSelectorProps {
   bars: 1 | 2 | 3 | 4;
   onChange: (bars: 1 | 2 | 3 | 4) => void;
   disabled?: boolean;
+  isDark: boolean;
 }
 
-const BarsSelector = memo(function BarsSelector({ bars, onChange, disabled }: BarsSelectorProps) {
+const BarsSelector = memo(function BarsSelector({ bars, onChange, disabled, isDark }: BarsSelectorProps) {
+  const labelColor = isDark ? 'text-slate-400' : 'text-slate-500';
+  const selectStyle = isDark
+    ? 'bg-slate-800 border-slate-600 text-slate-200 focus:ring-slate-500'
+    : 'bg-white border-slate-300 text-slate-700 focus:ring-slate-400';
+
   return (
     <div className="flex items-center gap-1">
-      <span className="text-xs text-slate-400">Bars:</span>
+      <span className={`text-xs ${labelColor}`}>Bars:</span>
       <select
         value={bars}
         onChange={(e) => onChange(Number(e.target.value) as 1 | 2 | 3 | 4)}
         disabled={disabled}
-        className="
-          bg-slate-800 border border-slate-600 rounded
-          text-xs text-slate-200
+        className={`
+          border rounded
+          text-xs
           px-1.5 py-0.5
-          focus:outline-none focus:ring-1 focus:ring-slate-500
+          focus:outline-none focus:ring-1
           disabled:opacity-50
-        "
+          ${selectStyle}
+        `}
       >
         <option value={1}>1</option>
         <option value={2}>2</option>
@@ -187,27 +209,35 @@ interface SubdivisionSelectorProps {
   subdivision: Subdivision;
   onChange: (subdivision: Subdivision) => void;
   disabled?: boolean;
+  isDark: boolean;
 }
 
 const SubdivisionSelector = memo(function SubdivisionSelector({
   subdivision,
   onChange,
-  disabled
+  disabled,
+  isDark
 }: SubdivisionSelectorProps) {
+  const labelColor = isDark ? 'text-slate-400' : 'text-slate-500';
+  const selectStyle = isDark
+    ? 'bg-slate-800 border-slate-600 text-slate-200 focus:ring-slate-500'
+    : 'bg-white border-slate-300 text-slate-700 focus:ring-slate-400';
+
   return (
     <div className="flex items-center gap-1">
-      <span className="text-xs text-slate-400">Grid:</span>
+      <span className={`text-xs ${labelColor}`}>Grid:</span>
       <select
         value={subdivision}
         onChange={(e) => onChange(e.target.value as Subdivision)}
         disabled={disabled}
-        className="
-          bg-slate-800 border border-slate-600 rounded
-          text-xs text-slate-200
+        className={`
+          border rounded
+          text-xs
           px-1.5 py-0.5
-          focus:outline-none focus:ring-1 focus:ring-slate-500
+          focus:outline-none focus:ring-1
           disabled:opacity-50
-        "
+          ${selectStyle}
+        `}
       >
         <option value="8n">1/8</option>
         <option value="16n">1/16</option>
@@ -233,6 +263,10 @@ export function StepSequencer() {
   const isPaused = usePlaybackStore((state) => state.isPaused);
   const bpm = usePlaybackStore((state) => state.bpm);
   const pausedPosition = usePlaybackStore((state) => state.pausedPosition);
+
+  // Theme state
+  const theme = useThemeStore((state) => state.theme);
+  const isDark = theme === 'fgdp-50';
 
   // Zoom state for cell width
   const [cellWidth, setCellWidth] = useState(DEFAULT_CELL_WIDTH);
@@ -384,24 +418,29 @@ export function StepSequencer() {
   // Calculate zoom percentage for display
   const zoomPercent = Math.round((cellWidth / DEFAULT_CELL_WIDTH) * 100);
 
+  const headerBorderColor = isDark ? 'border-slate-700' : 'border-slate-300';
+  const zoomTextColor = isDark ? 'text-slate-500' : 'text-slate-400';
+
   return (
     <div className="flex flex-col h-full">
       {/* Header: Pattern name and controls */}
-      <div className="shrink-0 px-3 py-2 border-b border-slate-700">
+      <div className={`shrink-0 px-3 py-2 border-b ${headerBorderColor}`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
-        <PatternNameEditor />
+        <PatternNameEditor isDark={isDark} />
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <BarsSelector
             bars={currentPattern.bars}
             onChange={setBars}
             disabled={isPlaying}
+            isDark={isDark}
           />
           <SubdivisionSelector
             subdivision={currentPattern.subdivision}
             onChange={handleSubdivisionChange}
             disabled={isPlaying}
+            isDark={isDark}
           />
-            <span className="text-xs text-slate-500 hidden sm:inline" title="Alt/Option + Scroll to zoom">
+            <span className={`text-xs ${zoomTextColor} hidden sm:inline`} title="Alt/Option + Scroll to zoom">
             {zoomPercent}%
           </span>
           </div>
@@ -425,7 +464,7 @@ export function StepSequencer() {
         )}
         <div ref={gridContentRef} className="flex flex-col gap-y-0.5 min-w-max">
           {/* Step number header row - sticky top */}
-          <StepHeader totalSteps={totalSteps} stepsPerBeat={stepsPerBeat} cellWidth={cellWidth} />
+          <StepHeader totalSteps={totalSteps} stepsPerBeat={stepsPerBeat} cellWidth={cellWidth} isDark={isDark} />
 
           {/* Track rows */}
           {currentPattern.tracks.map((track, trackIndex) => (
@@ -438,6 +477,7 @@ export function StepSequencer() {
               steps={track.steps}
               stepsPerBeat={stepsPerBeat}
               cellWidth={cellWidth}
+              isDark={isDark}
             />
           ))}
         </div>
