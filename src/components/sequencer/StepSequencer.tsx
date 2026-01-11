@@ -9,6 +9,7 @@
  */
 
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
+import * as Tone from 'tone';
 import { usePatternStore } from '../../stores/usePatternStore';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
 import { StepCell } from './StepCell';
@@ -92,10 +93,6 @@ interface TrackRowProps {
   label: string;
   shortLabel: string;
   steps: { active: boolean; finger?: FingerDesignation }[];
-  /** Current playhead step position (Story 3.6) */
-  currentStep: number;
-  /** Whether playback is active */
-  isPlaying: boolean;
   /** Steps per beat for visual separation */
   stepsPerBeat: number;
   /** Cell width for zoom */
@@ -108,8 +105,6 @@ const TrackRow = memo(function TrackRow({
   label,
   shortLabel,
   steps,
-  currentStep,
-  isPlaying,
   stepsPerBeat,
   cellWidth,
 }: TrackRowProps) {
@@ -143,7 +138,6 @@ const TrackRow = memo(function TrackRow({
             active={step.active}
             finger={step.finger}
             isFirstInBeat={stepIndex % stepsPerBeat === 0}
-            isCurrentStep={isPlaying && stepIndex === currentStep}
             cellWidth={cellWidth}
           />
         ))}
@@ -236,10 +230,18 @@ export function StepSequencer() {
   // Story 3.6: Playhead state
   const currentStep = usePlaybackStore((state) => state.currentStep);
   const isPlaying = usePlaybackStore((state) => state.isPlaying);
+  const isPaused = usePlaybackStore((state) => state.isPaused);
+  const bpm = usePlaybackStore((state) => state.bpm);
+  const pausedPosition = usePlaybackStore((state) => state.pausedPosition);
 
   // Zoom state for cell width
   const [cellWidth, setCellWidth] = useState(DEFAULT_CELL_WIDTH);
   const gridContainerRef = useRef<HTMLDivElement>(null);
+  const gridContentRef = useRef<HTMLDivElement>(null);
+  
+  // Real-time playhead position based on Transport.position
+  const [playheadPosition, setPlayheadPosition] = useState(0);
+  const [gridHeight, setGridHeight] = useState(0);
 
   // Handle subdivision change with cell width adjustment
   const handleSubdivisionChange = useCallback((newSubdivision: Subdivision) => {
@@ -277,6 +279,28 @@ export function StepSequencer() {
     return () => container.removeEventListener('wheel', handleWheel);
   }, [handleWheel, currentPattern]);
 
+  // Update grid height when pattern or cell width changes
+  useEffect(() => {
+    if (!gridContentRef.current || !currentPattern) return;
+
+    const updateHeight = () => {
+      if (gridContentRef.current) {
+        setGridHeight(gridContentRef.current.offsetHeight);
+      }
+    };
+
+    // Initial measurement
+    updateHeight();
+
+    // Use ResizeObserver to track height changes
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(gridContentRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [currentPattern, cellWidth]);
+
   // Initialize empty pattern on mount if none exists
   // Wait for URL check to complete before creating empty pattern
   useEffect(() => {
@@ -284,6 +308,67 @@ export function StepSequencer() {
       createEmptyPattern();
     }
   }, [urlCheckComplete, currentPattern, createEmptyPattern]);
+
+  // Real-time playhead position update using requestAnimationFrame
+  // Single time source principle: Transport.position is the source of truth
+  useEffect(() => {
+    if (!isPlaying && !isPaused) {
+      setPlayheadPosition(0);
+      return;
+    }
+
+    if (!currentPattern) return;
+
+    const stepsPerBeat = getStepsPerBeat(currentPattern.subdivision);
+    const totalSteps = currentPattern.tracks[0]?.steps.length ?? 16;
+    
+    // Calculate step duration in seconds
+    const stepDuration = (60 / bpm) / stepsPerBeat;
+
+    // When paused, calculate playhead position from pausedPosition (no snapping)
+    if (isPaused) {
+      // Use exact pausedPosition (no snapping - shows real-time position)
+      const stepPosition = pausedPosition / stepDuration;
+      const normalizedPosition = stepPosition % totalSteps;
+      setPlayheadPosition(normalizedPosition);
+      return;
+    }
+
+    let animationFrameId: number;
+    
+    const updatePlayhead = () => {
+      if (!isPlaying) {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+        }
+        return;
+      }
+
+      // Get current Transport position in seconds (single source of truth)
+      const transportPos = Tone.getTransport().position;
+      const transportPosition = typeof transportPos === 'number' 
+        ? transportPos 
+        : Tone.Time(transportPos).toSeconds();
+      
+      // Calculate current step position (fractional for smooth movement)
+      const stepPosition = transportPosition / stepDuration;
+      
+      // Handle loop (modulo totalSteps)
+      const normalizedPosition = stepPosition % totalSteps;
+      
+      setPlayheadPosition(normalizedPosition);
+      
+      animationFrameId = requestAnimationFrame(updatePlayhead);
+    };
+
+    animationFrameId = requestAnimationFrame(updatePlayhead);
+    
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [isPlaying, isPaused, currentPattern, bpm, pausedPosition]);
 
   if (!currentPattern) {
     return (
@@ -302,9 +387,10 @@ export function StepSequencer() {
   return (
     <div className="flex flex-col h-full">
       {/* Header: Pattern name and controls */}
-      <div className="shrink-0 px-3 py-2 border-b border-slate-700 flex items-center justify-between gap-4">
+      <div className="shrink-0 px-3 py-2 border-b border-slate-700">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
         <PatternNameEditor />
-        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <BarsSelector
             bars={currentPattern.bars}
             onChange={setBars}
@@ -315,18 +401,29 @@ export function StepSequencer() {
             onChange={handleSubdivisionChange}
             disabled={isPlaying}
           />
-          <span className="text-xs text-slate-500">
-            {currentPattern.bpm} BPM
-          </span>
-          <span className="text-xs text-slate-500" title="Alt/Option + Scroll to zoom">
+            <span className="text-xs text-slate-500 hidden sm:inline" title="Alt/Option + Scroll to zoom">
             {zoomPercent}%
           </span>
+          </div>
         </div>
       </div>
 
       {/* Grid container with scroll - sticky headers */}
-      <div ref={gridContainerRef} className="flex-1 overflow-auto">
-        <div className="flex flex-col gap-y-0.5 min-w-max">
+      <div ref={gridContainerRef} className="flex-1 overflow-auto relative">
+        {/* Vertical playhead line - real-time smooth movement */}
+        {(isPlaying || isPaused) && gridHeight > 0 && (
+          <div
+            className={`
+              absolute top-0 w-0.5 z-40 pointer-events-none
+              ${isPlaying ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.5)]' : 'bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.5)]'}
+            `}
+            style={{
+              left: `${96 + playheadPosition * (cellWidth + 2)}px`, // Track label width (w-24 = 96px) + real-time step position
+              height: `${gridHeight}px`, // Use actual grid height
+            }}
+          />
+        )}
+        <div ref={gridContentRef} className="flex flex-col gap-y-0.5 min-w-max">
           {/* Step number header row - sticky top */}
           <StepHeader totalSteps={totalSteps} stepsPerBeat={stepsPerBeat} cellWidth={cellWidth} />
 
@@ -339,8 +436,6 @@ export function StepSequencer() {
               label={track.label}
               shortLabel={track.label.slice(0, 3)}
               steps={track.steps}
-              currentStep={currentStep}
-              isPlaying={isPlaying}
               stepsPerBeat={stepsPerBeat}
               cellWidth={cellWidth}
             />
