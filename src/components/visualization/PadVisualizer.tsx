@@ -1,6 +1,7 @@
-import React, { FC, useEffect, useState, useRef } from 'react';
+import React, { FC, useEffect, useState, useRef, useCallback } from 'react';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
 import { usePatternStore } from '../../stores/usePatternStore';
+import { useAudioStore } from '../../stores/useAudioStore';
 import { PAD_IDS, PADS, type PadId } from '../../config/padMapping';
 
 /**
@@ -85,9 +86,55 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
   const bpm = usePlaybackStore((state) => state.bpm);
   const currentPattern = usePatternStore((state) => state.currentPattern);
 
+  // Audio store for pad click sound playback
+  const { playPad, isAudioReady, initAudio } = useAudioStore();
+
   // Track active pads with their hand designation for colored highlighting
   const [activePads, setActivePads] = useState<Map<number, 'L' | 'R'>>(new Map());
+  // Track clicked pad for visual feedback
+  const [clickedPad, setClickedPad] = useState<number | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Handle pad click to play sound
+  const handlePadClick = useCallback(async (padIndex: number) => {
+    // Initialize audio if not ready (browser autoplay policy)
+    if (!isAudioReady) {
+      await initAudio();
+    }
+
+    // Convert padIndex (1-based) to padId
+    const padId = PAD_IDS[padIndex - 1];
+    if (padId) {
+      playPad(padId);
+
+      // Visual feedback for click
+      setClickedPad(padIndex);
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+      }
+      clickTimeoutRef.current = setTimeout(() => {
+        setClickedPad(null);
+      }, 100);
+    }
+  }, [playPad, isAudioReady, initAudio]);
+
+  // Handle keyboard activation (Enter/Space)
+  const handlePadKeyDown = useCallback((e: React.KeyboardEvent, padIndex: number) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handlePadClick(padIndex);
+    }
+  }, [handlePadClick]);
+
+  // Cleanup click timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Calculate which pads are active for the current step
   // Pads light up immediately and turn off after half a 16th note
@@ -135,7 +182,12 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
   // Get fill style based on hand designation
   // Returns either a class name or an inline fill URL for pad-specific gradients
   const getHighlightFill = (padIndex: number): { className: string; fill?: string } => {
-    // Check external highlight first
+    // Check if this pad was just clicked (for visual feedback)
+    // Use white-to-gray gradient similar to playback gradients
+    if (clickedPad === padIndex) {
+      return { className: '', fill: `url(#radial-click-${padIndex})` };
+    }
+    // Check external highlight
     if (highlightedPads.includes(padIndex)) {
       return { className: 'pad-highlighted' };
     }
@@ -192,6 +244,7 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
               const width = longBarBounds.maxX - longBarBounds.minX;
               const leftX = longBarBounds.minX + width / 3;
               const rightX = longBarBounds.minX + (width * 2) / 3;
+              const centerX = longBarBounds.minX + width / 2;
               return (
                 <React.Fragment key={padIndex}>
                   {/* Right hand: 2/3 position */}
@@ -215,6 +268,17 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
                   >
                     <stop offset="0%" stopColor="#ffffff" />
                     <stop offset="100%" stopColor="#0ea5e9" />
+                  </radialGradient>
+                  {/* Click gradient: center position (white center, gray outer) */}
+                  <radialGradient
+                    id={`radial-click-${padIndex}`}
+                    gradientUnits="userSpaceOnUse"
+                    cx={centerX}
+                    cy={longBarBounds.y}
+                    r={GRADIENT_RADIUS}
+                  >
+                    <stop offset="0%" stopColor="#ffffff" />
+                    <stop offset="100%" stopColor="#9ca3af" />
                   </radialGradient>
                 </React.Fragment>
               );
@@ -245,6 +309,17 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
                   <stop offset="0%" stopColor="#ffffff" />
                   <stop offset="100%" stopColor="#0ea5e9" />
                 </radialGradient>
+                {/* Click gradient for this pad (white center, gray outer) */}
+                <radialGradient
+                  id={`radial-click-${padIndex}`}
+                  gradientUnits="userSpaceOnUse"
+                  cx={center.x}
+                  cy={center.y}
+                  r={GRADIENT_RADIUS}
+                >
+                  <stop offset="0%" stopColor="#ffffff" />
+                  <stop offset="100%" stopColor="#9ca3af" />
+                </radialGradient>
               </React.Fragment>
             );
           })}
@@ -253,6 +328,14 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
               .pad-default {
                 fill: #707070;
                 stroke-width: 0px;
+                cursor: pointer;
+                transition: filter 0.1s ease;
+              }
+              .pad-default:hover {
+                filter: brightness(1.2);
+              }
+              .pad-default:focus {
+                outline: none;
               }
               .pad-highlighted {
                 fill: #3b82f6;
@@ -263,6 +346,8 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
         {padPaths.map((d, index) => {
           const padIndex = index + 1;
           const highlight = getHighlightFill(padIndex);
+          const padId = PAD_IDS[index];
+          const padInfo = padId ? PADS[padId] : null;
           return (
             <path
               key={padIndex}
@@ -271,6 +356,11 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
               className={`pad-default ${highlight.className}`}
               style={highlight.fill ? { fill: highlight.fill } : undefined}
               data-testid={`pad-${padIndex}`}
+              onMouseDown={() => handlePadClick(padIndex)}
+              onKeyDown={(e) => handlePadKeyDown(e, padIndex)}
+              tabIndex={0}
+              role="button"
+              aria-label={padInfo ? `Play ${padInfo.label}` : `Play pad ${padIndex}`}
             />
           );
         })}

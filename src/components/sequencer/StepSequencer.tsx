@@ -13,9 +13,15 @@ import * as Tone from 'tone';
 import { usePatternStore } from '../../stores/usePatternStore';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
 import { useThemeStore } from '../../stores/useThemeStore';
+import { useLayoutStore } from '../../stores/useLayoutStore';
+import { useSelectionStore } from '../../stores/useSelectionStore';
 import { StepCell } from './StepCell';
 import { PatternNameEditor } from './PatternNameEditor';
+import { LayoutSelector } from './LayoutSelector';
+import { SimplifiedHandSelector, type HandSelection } from './SimplifiedHandSelector';
 import { getStepsPerBeat, type FingerDesignation, type Subdivision } from '../../types/pattern';
+import { getLayoutOrder, SIMPLIFIED_TRACKS, type SimplifiedTrackConfig } from '../../config/layoutViews';
+import { PAD_IDS, type PadId } from '../../config/padMapping';
 
 /** Zoom level constants */
 const MIN_CELL_WIDTH = 20;
@@ -45,22 +51,57 @@ function formatStepLabel(stepIndex: number, stepsPerBeat: number): string {
 
 /**
  * Step header showing step numbers (sticky top)
+ * Clicking on a step moves the playhead to that position
+ * Supports drag to continuously move playhead
  */
 interface StepHeaderProps {
   totalSteps: number;
   stepsPerBeat: number;
   cellWidth: number;
   isDark: boolean;
+  onStepClick: (step: number) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  /** Disable interaction (e.g., during playback) */
+  disabled?: boolean;
 }
 
-const StepHeader = memo(function StepHeader({ totalSteps, stepsPerBeat, cellWidth, isDark }: StepHeaderProps) {
+const StepHeader = memo(function StepHeader({
+  totalSteps,
+  stepsPerBeat,
+  cellWidth,
+  isDark,
+  onStepClick,
+  onDragStart,
+  onDragEnd,
+  disabled = false,
+}: StepHeaderProps) {
   const bgColor = isDark ? 'bg-slate-900' : 'bg-slate-50';
   const borderColor = isDark ? 'border-slate-600' : 'border-slate-400';
   const textColor = isDark ? 'text-slate-400' : 'text-slate-600';
   const subTextColor = isDark ? 'text-slate-600' : 'text-slate-400';
 
+  const handleMouseDown = useCallback((step: number) => {
+    if (disabled) return;
+    onStepClick(step);
+    onDragStart();
+  }, [onStepClick, onDragStart, disabled]);
+
+  const handleMouseEnter = useCallback((step: number, e: React.MouseEvent) => {
+    if (disabled) return;
+    // Only update if mouse button is pressed (dragging)
+    if (e.buttons === 1) {
+      onStepClick(step);
+    }
+  }, [onStepClick, disabled]);
+
+  const handleMouseUp = useCallback(() => {
+    if (disabled) return;
+    onDragEnd();
+  }, [onDragEnd, disabled]);
+
   return (
-    <div className={`sticky top-0 z-20 flex ${bgColor}`}>
+    <div className={`sticky top-0 z-20 flex ${bgColor}`} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       {/* Empty cell above track labels - also sticky left */}
       <div className={`sticky left-0 z-30 w-24 shrink-0 ${bgColor}`} />
       {/* Step number headers */}
@@ -70,20 +111,27 @@ const StepHeader = memo(function StepHeader({ totalSteps, stepsPerBeat, cellWidt
           const isFirstInBeat = i % stepsPerBeat === 0;
 
           return (
-            <div
+            <button
               key={i}
+              type="button"
+              onMouseDown={() => handleMouseDown(i)}
+              onMouseEnter={(e) => handleMouseEnter(i, e)}
               className={`
                 flex items-center justify-center
                 font-mono
                 h-6
                 ${bgColor}
                 ${isFirstInBeat ? `border-l-2 ${borderColor} ${textColor} text-xs` : `${subTextColor} text-[10px]`}
+                ${disabled ? 'cursor-default opacity-60' : 'hover:bg-purple-500/20 cursor-pointer'} transition-colors
+                focus:outline-none
+                select-none
               `}
               style={{ width: cellWidth }}
-              title={`Bar ${Math.floor(i / (stepsPerBeat * 4)) + 1}, Beat ${Math.floor((i % (stepsPerBeat * 4)) / stepsPerBeat) + 1}, Step ${(i % stepsPerBeat) + 1}`}
+              title={`Click to move playhead to Bar ${Math.floor(i / (stepsPerBeat * 4)) + 1}, Beat ${Math.floor((i % (stepsPerBeat * 4)) / stepsPerBeat) + 1}`}
+              aria-label={`Move playhead to step ${i + 1}`}
             >
               {label || '·'}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -156,6 +204,115 @@ const TrackRow = memo(function TrackRow({
             isDark={isDark}
           />
         ))}
+      </div>
+    </div>
+  );
+});
+
+/**
+ * Simplified track row for merged L/R pads
+ * Shows combined state and allows selection via popup
+ */
+interface SimplifiedTrackRowProps {
+  config: SimplifiedTrackConfig;
+  /** The original tracks from pattern that this simplified track merges */
+  sourceTracks: { padId: PadId; trackIndex: number; steps: { active: boolean; finger?: FingerDesignation }[] }[];
+  stepsPerBeat: number;
+  cellWidth: number;
+  isDark: boolean;
+  onCellClick: (trackId: string, stepIndex: number, e: React.MouseEvent) => void;
+}
+
+const SimplifiedTrackRow = memo(function SimplifiedTrackRow({
+  config,
+  sourceTracks,
+  stepsPerBeat,
+  cellWidth,
+  isDark,
+  onCellClick,
+}: SimplifiedTrackRowProps) {
+  const bgColor = isDark ? 'bg-slate-900' : 'bg-slate-50';
+  const textColor = isDark ? 'text-slate-300' : 'text-slate-700';
+  const borderColor = isDark ? 'border-slate-700' : 'border-slate-300';
+  const activeBg = isDark ? 'bg-purple-600' : 'bg-purple-500';
+  const inactiveBg = isDark ? 'bg-slate-700' : 'bg-slate-300';
+  const beatBorderColor = isDark ? 'border-slate-500' : 'border-slate-400';
+
+  // Get step count from first source track
+  const stepCount = sourceTracks[0]?.steps.length ?? 16;
+
+  // For each step, check if any source track has it active
+  const getMergedStep = (stepIndex: number) => {
+    // Find which source tracks have this step active
+    const activeSourcesInfo = sourceTracks
+      .filter(t => t.steps[stepIndex]?.active)
+      .map(t => ({
+        padId: t.padId,
+        finger: t.steps[stepIndex]?.finger,
+      }));
+
+    return {
+      isActive: activeSourcesInfo.length > 0,
+      activeSources: activeSourcesInfo,
+    };
+  };
+
+  return (
+    <div className="flex">
+      {/* Track label - sticky on horizontal scroll */}
+      <div
+        className={`
+          sticky left-0 z-10
+          flex items-center
+          px-2
+          ${bgColor}
+          text-xs ${textColor}
+          border-r ${borderColor}
+          w-24 shrink-0
+          truncate
+        `}
+        title={config.label}
+      >
+        <span className="hidden sm:inline">{config.label}</span>
+        <span className="sm:hidden">{config.label.slice(0, 3)}</span>
+      </div>
+      {/* Step cells */}
+      <div className="flex gap-x-0.5">
+        {Array.from({ length: stepCount }, (_, stepIndex) => {
+          const { isActive, activeSources } = getMergedStep(stepIndex);
+          const isFirstInBeat = stepIndex % stepsPerBeat === 0;
+
+          // Determine display for merged step
+          let fingerDisplay = '';
+          if (activeSources.length === 1 && activeSources[0].finger) {
+            const f = activeSources[0].finger;
+            fingerDisplay = f.hand === 'L' ? `(${f.finger})` : `${f.finger}`;
+          } else if (activeSources.length === 2) {
+            // Both hands active
+            fingerDisplay = 'R+L';
+          }
+
+          return (
+            <button
+              key={stepIndex}
+              type="button"
+              onClick={(e) => onCellClick(config.id, stepIndex, e)}
+              className={`
+                flex items-center justify-center
+                rounded-sm
+                text-[10px] font-mono
+                transition-colors
+                ${isActive ? `${activeBg} text-white` : `${inactiveBg}`}
+                ${isFirstInBeat ? `border-l-2 ${beatBorderColor}` : ''}
+                hover:ring-2 hover:ring-purple-400/50
+                focus:outline-none focus:ring-2 focus:ring-purple-400
+              `}
+              style={{ width: cellWidth, height: 24 }}
+            >
+              {fingerDisplay}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -239,9 +396,14 @@ const SubdivisionSelector = memo(function SubdivisionSelector({
           ${selectStyle}
         `}
       >
+        <option value="4n">1/4</option>
+        <option value="4t">1/4T</option>
         <option value="8n">1/8</option>
+        <option value="8t">1/8T</option>
         <option value="16n">1/16</option>
+        <option value="16t">1/16T</option>
         <option value="32n">1/32</option>
+        <option value="32t">1/32T</option>
       </select>
     </div>
   );
@@ -256,6 +418,7 @@ export function StepSequencer() {
   const createEmptyPattern = usePatternStore((state) => state.createEmptyPattern);
   const setBars = usePatternStore((state) => state.setBars);
   const setSubdivisionStore = usePatternStore((state) => state.setSubdivision);
+  const toggleStep = usePatternStore((state) => state.toggleStep);
 
   // Story 3.6: Playhead state
   const currentStep = usePlaybackStore((state) => state.currentStep);
@@ -263,19 +426,43 @@ export function StepSequencer() {
   const isPaused = usePlaybackStore((state) => state.isPaused);
   const bpm = usePlaybackStore((state) => state.bpm);
   const pausedPosition = usePlaybackStore((state) => state.pausedPosition);
+  const setPlayhead = usePlaybackStore((state) => state.setPlayhead);
 
   // Theme state
   const theme = useThemeStore((state) => state.theme);
   const isDark = theme === 'fgdp-50';
 
+  // Layout state
+  const currentLayout = useLayoutStore((state) => state.currentLayout);
+
+  // Selection state for drag box overlay
+  const isSelecting = useSelectionStore((state) => state.isSelecting);
+  const selectionStart = useSelectionStore((state) => state.selectionStart);
+  const selectionEnd = useSelectionStore((state) => state.selectionEnd);
+
   // Zoom state for cell width
   const [cellWidth, setCellWidth] = useState(DEFAULT_CELL_WIDTH);
   const gridContainerRef = useRef<HTMLDivElement>(null);
   const gridContentRef = useRef<HTMLDivElement>(null);
-  
+
   // Real-time playhead position based on Transport.position
   const [playheadPosition, setPlayheadPosition] = useState(0);
   const [gridHeight, setGridHeight] = useState(0);
+
+  // Hand selection popup state for simplified view
+  const [handSelection, setHandSelection] = useState<HandSelection | null>(null);
+
+  // Step header drag state
+  const [isDraggingHeader, setIsDraggingHeader] = useState(false);
+
+  // Header drag handlers
+  const handleHeaderDragStart = useCallback(() => {
+    setIsDraggingHeader(true);
+  }, []);
+
+  const handleHeaderDragEnd = useCallback(() => {
+    setIsDraggingHeader(false);
+  }, []);
 
   // Handle subdivision change with cell width adjustment
   const handleSubdivisionChange = useCallback((newSubdivision: Subdivision) => {
@@ -346,8 +533,9 @@ export function StepSequencer() {
   // Real-time playhead position update using requestAnimationFrame
   // Single time source principle: Transport.position is the source of truth
   useEffect(() => {
+    // In stopped state, use currentStep from store (allows user to move playhead)
     if (!isPlaying && !isPaused) {
-      setPlayheadPosition(0);
+      setPlayheadPosition(currentStep);
       return;
     }
 
@@ -369,9 +557,14 @@ export function StepSequencer() {
     }
 
     let animationFrameId: number;
-    
+
     const updatePlayhead = () => {
-      if (!isPlaying) {
+      // Check current store state directly (not stale closure value)
+      // This prevents race conditions when stop() is called
+      const currentState = usePlaybackStore.getState();
+      if (!currentState.isPlaying) {
+        // If stopped, ensure playhead is at currentStep (usually 0 after stop)
+        setPlayheadPosition(currentState.currentStep);
         if (animationFrameId) {
           cancelAnimationFrame(animationFrameId);
         }
@@ -380,18 +573,18 @@ export function StepSequencer() {
 
       // Get current Transport position in seconds (single source of truth)
       const transportPos = Tone.getTransport().position;
-      const transportPosition = typeof transportPos === 'number' 
-        ? transportPos 
+      const transportPosition = typeof transportPos === 'number'
+        ? transportPos
         : Tone.Time(transportPos).toSeconds();
-      
+
       // Calculate current step position (fractional for smooth movement)
       const stepPosition = transportPosition / stepDuration;
-      
+
       // Handle loop (modulo totalSteps)
       const normalizedPosition = stepPosition % totalSteps;
-      
+
       setPlayheadPosition(normalizedPosition);
-      
+
       animationFrameId = requestAnimationFrame(updatePlayhead);
     };
 
@@ -402,7 +595,82 @@ export function StepSequencer() {
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [isPlaying, isPaused, currentPattern, bpm, pausedPosition]);
+  }, [isPlaying, isPaused, currentPattern, bpm, pausedPosition, currentStep]);
+
+  // Handle simplified view cell click - show popup for hand selection
+  const handleSimplifiedCellClick = useCallback((trackId: string, stepIndex: number, e: React.MouseEvent) => {
+    const config = SIMPLIFIED_TRACKS.find(t => t.id === trackId);
+    if (!config || !currentPattern) return;
+
+    // For single-source tracks, just toggle directly
+    if (config.sources.length === 1) {
+      const padId = config.sources[0];
+      const trackIndex = PAD_IDS.indexOf(padId);
+      if (trackIndex !== -1) {
+        toggleStep(trackIndex, stepIndex);
+      }
+      return;
+    }
+
+    // For merged tracks, show the hand selection popup
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setHandSelection({
+      trackId,
+      stepIndex,
+      position: {
+        x: rect.left,
+        y: rect.bottom + 4,
+      },
+    });
+  }, [currentPattern, toggleStep]);
+
+  // Handle hand selection from popup
+  const handleHandSelect = useCallback((hand: 'L' | 'R') => {
+    if (!handSelection || !currentPattern) return;
+
+    const config = SIMPLIFIED_TRACKS.find(t => t.id === handSelection.trackId);
+    if (!config || config.sources.length < 2) return;
+
+    // Find the correct source pad based on hand selection
+    // Convention: L variant is first, R variant is second in sources array
+    const padId = hand === 'L' ? config.sources[0] : config.sources[1];
+    const trackIndex = PAD_IDS.indexOf(padId);
+
+    if (trackIndex !== -1) {
+      toggleStep(trackIndex, handSelection.stepIndex);
+    }
+
+    setHandSelection(null);
+  }, [handSelection, currentPattern, toggleStep]);
+
+  // Close hand selection popup
+  const handleCloseHandSelection = useCallback(() => {
+    setHandSelection(null);
+  }, []);
+
+  // Get ordered tracks based on current layout
+  const getOrderedTracks = useCallback(() => {
+    if (!currentPattern) return [];
+
+    const layoutOrder = getLayoutOrder(currentLayout);
+
+    if (layoutOrder) {
+      // Reorder tracks according to layout
+      return layoutOrder.map(padId => {
+        const trackIndex = PAD_IDS.indexOf(padId);
+        return {
+          ...currentPattern.tracks[trackIndex],
+          originalIndex: trackIndex,
+        };
+      });
+    }
+
+    // Default order - use original
+    return currentPattern.tracks.map((track, index) => ({
+      ...track,
+      originalIndex: index,
+    }));
+  }, [currentPattern, currentLayout]);
 
   if (!currentPattern) {
     return (
@@ -440,6 +708,7 @@ export function StepSequencer() {
             disabled={isPlaying}
             isDark={isDark}
           />
+          <LayoutSelector isDark={isDark} />
             <span className={`text-xs ${zoomTextColor} hidden sm:inline`} title="Alt/Option + Scroll to zoom">
             {zoomPercent}%
           </span>
@@ -449,12 +718,16 @@ export function StepSequencer() {
 
       {/* Grid container with scroll - sticky headers */}
       <div ref={gridContainerRef} className="flex-1 overflow-auto relative">
-        {/* Vertical playhead line - real-time smooth movement */}
-        {(isPlaying || isPaused) && gridHeight > 0 && (
+        {/* Vertical playhead line - always visible, color indicates state */}
+        {gridHeight > 0 && (
           <div
             className={`
               absolute top-0 w-0.5 z-40 pointer-events-none
-              ${isPlaying ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.5)]' : 'bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.5)]'}
+              ${isPlaying
+                ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.5)]'
+                : isPaused
+                  ? 'bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.5)]'
+                  : 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.5)]'}
             `}
             style={{
               left: `${96 + playheadPosition * (cellWidth + 2)}px`, // Track label width (w-24 = 96px) + real-time step position
@@ -462,26 +735,103 @@ export function StepSequencer() {
             }}
           />
         )}
+        {/* Drag box overlay during selection */}
+        {isSelecting && selectionStart && selectionEnd && (() => {
+          const minStep = Math.min(selectionStart.step, selectionEnd.step);
+          const maxStep = Math.max(selectionStart.step, selectionEnd.step);
+          const minTrack = Math.min(selectionStart.track, selectionEnd.track);
+          const maxTrack = Math.max(selectionStart.track, selectionEnd.track);
+
+          // Cell dimensions: cellWidth + 2px gap, 30px height + 2px gap
+          const cellTotalWidth = cellWidth + 2;
+          const cellTotalHeight = 32; // 30px + 2px gap
+          const headerHeight = 26; // 24px h-6 + 2px gap
+          const labelWidth = 96; // w-24
+
+          // Theme-aware colors: cyan for dark, violet for light
+          const boxClass = isDark
+            ? 'bg-cyan-400/20 border-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.4)]'
+            : 'bg-violet-500/20 border-violet-500 shadow-[0_0_12px_rgba(139,92,246,0.4)]';
+
+          return (
+            <div
+              className={`absolute border-2 pointer-events-none z-30 rounded-sm ${boxClass}`}
+              style={{
+                left: labelWidth + minStep * cellTotalWidth,
+                top: headerHeight + minTrack * cellTotalHeight,
+                width: (maxStep - minStep + 1) * cellTotalWidth - 2,
+                height: (maxTrack - minTrack + 1) * cellTotalHeight - 2,
+              }}
+            />
+          );
+        })()}
         <div ref={gridContentRef} className="flex flex-col gap-y-0.5 min-w-max">
           {/* Step number header row - sticky top */}
-          <StepHeader totalSteps={totalSteps} stepsPerBeat={stepsPerBeat} cellWidth={cellWidth} isDark={isDark} />
+          <StepHeader
+            totalSteps={totalSteps}
+            stepsPerBeat={stepsPerBeat}
+            cellWidth={cellWidth}
+            isDark={isDark}
+            onStepClick={setPlayhead}
+            onDragStart={handleHeaderDragStart}
+            onDragEnd={handleHeaderDragEnd}
+            disabled={isPlaying}
+          />
 
-          {/* Track rows */}
-          {currentPattern.tracks.map((track, trackIndex) => (
-            <TrackRow
-              key={track.padId}
-              trackIndex={trackIndex}
-              padId={track.padId}
-              label={track.label}
-              shortLabel={track.label.slice(0, 3)}
-              steps={track.steps}
-              stepsPerBeat={stepsPerBeat}
-              cellWidth={cellWidth}
-              isDark={isDark}
-            />
-          ))}
+          {/* Track rows - render based on current layout */}
+          {currentLayout === 'simplified' ? (
+            // Simplified view with merged L/R tracks
+            SIMPLIFIED_TRACKS.map((config) => {
+              // Get source tracks for this simplified track
+              const sourceTracks = config.sources.map(padId => {
+                const trackIndex = PAD_IDS.indexOf(padId);
+                return {
+                  padId,
+                  trackIndex,
+                  steps: currentPattern.tracks[trackIndex]?.steps ?? [],
+                };
+              });
+
+              return (
+                <SimplifiedTrackRow
+                  key={config.id}
+                  config={config}
+                  sourceTracks={sourceTracks}
+                  stepsPerBeat={stepsPerBeat}
+                  cellWidth={cellWidth}
+                  isDark={isDark}
+                  onCellClick={handleSimplifiedCellClick}
+                />
+              );
+            })
+          ) : (
+            // Default, right-hand, or left-hand view
+            getOrderedTracks().map((track) => (
+              <TrackRow
+                key={track.padId}
+                trackIndex={track.originalIndex}
+                padId={track.padId}
+                label={track.label}
+                shortLabel={track.label.slice(0, 3)}
+                steps={track.steps}
+                stepsPerBeat={stepsPerBeat}
+                cellWidth={cellWidth}
+                isDark={isDark}
+              />
+            ))
+          )}
         </div>
       </div>
+
+      {/* Hand selection popup for simplified view */}
+      {handSelection && (
+        <SimplifiedHandSelector
+          selection={handSelection}
+          onSelect={handleHandSelect}
+          onClose={handleCloseHandSelection}
+          isDark={isDark}
+        />
+      )}
     </div>
   );
 }

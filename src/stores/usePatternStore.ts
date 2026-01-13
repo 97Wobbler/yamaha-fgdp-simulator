@@ -136,9 +136,14 @@ function resizeTrackSteps(track: PatternTrack, newStepCount: number): PatternTra
 }
 
 /**
- * Convert track steps when subdivision changes (interleaving)
- * 8n→16n: steps spread out with gaps (0→0, 1→2, 2→4...)
- * 16n→8n: every other step kept (0→0, 2→1, 4→2...)
+ * Convert track steps when subdivision changes
+ *
+ * For integer ratios (e.g., 8n→16n):
+ *   Spread steps out with gaps (0→0, 1→2, 2→4...)
+ *
+ * For triplet conversions (e.g., 8n→8t, 16n→16t):
+ *   Uses time-based quantization to map steps to nearest positions
+ *   Some data loss may occur when converting between straight and triplet
  */
 function convertTrackSubdivision(
   track: PatternTrack,
@@ -149,6 +154,7 @@ function convertTrackSubdivision(
   const fromStepsPerBeat = getStepsPerBeat(fromSubdivision);
   const toStepsPerBeat = getStepsPerBeat(toSubdivision);
   const newTotalSteps = getTotalSteps(bars, toSubdivision);
+  const oldTotalSteps = track.steps.length;
 
   const newSteps: PatternStep[] = Array.from({ length: newTotalSteps }, () => ({
     active: false,
@@ -158,25 +164,49 @@ function convertTrackSubdivision(
 
   const ratio = toStepsPerBeat / fromStepsPerBeat;
 
-  if (ratio > 1) {
-    // Subdividing (e.g., 8n→16n): spread steps out
-    // Each old step maps to oldIndex * ratio
+  // Check if this is a clean integer ratio conversion
+  const isCleanRatio = Number.isInteger(ratio) || Number.isInteger(1 / ratio);
+
+  if (isCleanRatio) {
+    // Clean ratio conversion (e.g., 8n→16n, 16n→32n)
+    if (ratio > 1) {
+      // Subdividing: spread steps out
+      track.steps.forEach((step, oldIndex) => {
+        const newIndex = Math.round(oldIndex * ratio);
+        if (newIndex < newTotalSteps && step.active) {
+          newSteps[newIndex] = { ...step };
+        }
+      });
+    } else {
+      // Combining: keep every Nth step
+      const step = 1 / ratio;
+      for (let newIndex = 0; newIndex < newTotalSteps; newIndex++) {
+        const oldIndex = Math.round(newIndex * step);
+        if (oldIndex < oldTotalSteps && track.steps[oldIndex]?.active) {
+          newSteps[newIndex] = { ...track.steps[oldIndex] };
+        }
+      }
+    }
+  } else {
+    // Non-integer ratio (triplet conversion)
+    // Use time-based mapping: calculate beat position and map to new grid
+    const beatsPerBar = 4;
+    const totalBeats = bars * beatsPerBar;
+
     track.steps.forEach((step, oldIndex) => {
-      const newIndex = oldIndex * ratio;
-      if (newIndex < newTotalSteps) {
+      if (!step.active) return;
+
+      // Calculate beat position of this step
+      const beatPosition = oldIndex / fromStepsPerBeat;
+
+      // Calculate new step index based on beat position
+      const newIndex = Math.round(beatPosition * toStepsPerBeat);
+
+      // Only copy if within bounds and cell is not already filled
+      if (newIndex < newTotalSteps && !newSteps[newIndex].active) {
         newSteps[newIndex] = { ...step };
       }
     });
-  } else {
-    // Combining (e.g., 16n→8n): keep every Nth step
-    // Each new step comes from newIndex / ratio (only integer positions)
-    const step = 1 / ratio; // e.g., ratio=0.5 → step=2
-    for (let newIndex = 0; newIndex < newTotalSteps; newIndex++) {
-      const oldIndex = newIndex * step;
-      if (oldIndex < track.steps.length && Number.isInteger(oldIndex)) {
-        newSteps[newIndex] = { ...track.steps[oldIndex] };
-      }
-    }
   }
 
   return { ...track, steps: newSteps };

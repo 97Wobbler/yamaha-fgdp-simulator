@@ -1,0 +1,22 @@
+# Drum Samples Directory
+
+Place your GM MIDI drum samples here. Required files:
+- kick.wav
+- snare.wav
+- snare_rim_open.wav
+- snare_rim_closed.wav
+- hihat_closed.wav
+- hihat_open.wav
+- crash.wav
+- ride.wav
+- ride_bell.wav
+- splash.wav
+- tom_low.wav
+- tom_mid.wav
+- tom_high.wav
+
+Recommended sources:
+- Salamander Drum Kit (CC0): https://github.com/sfztools/salamander-drumkit
+- Freesound.org (search for CC0 drum samples)
+
+If no samples are found, the app will fall back to synthesis mode.
