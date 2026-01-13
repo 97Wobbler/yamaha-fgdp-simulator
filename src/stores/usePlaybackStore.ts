@@ -42,6 +42,8 @@ interface PlaybackStore {
   bpm: number;
   /** Saved Transport position when paused (in seconds) */
   pausedPosition: number;
+  /** Whether looping is enabled */
+  isLooping: boolean;
 
   /** Start playback */
   play: () => void;
@@ -57,6 +59,14 @@ interface PlaybackStore {
   adjustBpm: (delta: number) => void;
   /** Reset playback state */
   reset: () => void;
+  /** Seek forward by one beat */
+  seekForward: () => void;
+  /** Seek backward by one beat */
+  seekBackward: () => void;
+  /** Toggle loop on/off */
+  toggleLoop: () => void;
+  /** Set playhead to specific step */
+  setPlayhead: (step: number) => void;
 }
 
 /** ID for scheduled transport event */
@@ -79,6 +89,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
     currentStep: 0,
     bpm: DEFAULT_BPM,
     pausedPosition: 0,
+    isLooping: true,
 
     play: () => {
       const state = get();
@@ -136,6 +147,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
         (time) => {
           const currentPattern = usePatternStore.getState().currentPattern;
           const currentTotalSteps = currentPattern?.tracks[0]?.steps.length ?? 16;
+          const { isLooping } = get();
 
           // Use tracked step (not calculated from time)
           const stepToPlay = nextStepToPlay;
@@ -153,12 +165,25 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
           }
 
           // Update step for next callback
-          nextStepToPlay = (stepToPlay + 1) % currentTotalSteps;
+          const nextStep = stepToPlay + 1;
 
-          // Use Tone.Draw to sync visual updates with audio timing
-          Draw.schedule(() => {
-            set({ currentStep: stepToPlay });
-          }, time);
+          // If not looping and we've reached the end, stop playback
+          const shouldStop = !isLooping && nextStep >= currentTotalSteps;
+          if (shouldStop) {
+            // Schedule stop after this step plays
+            // Note: Don't update currentStep here - stop() will reset it to 0
+            Draw.schedule(() => {
+              get().stop();
+            }, time);
+            nextStepToPlay = 0; // Reset for next play
+          } else {
+            nextStepToPlay = nextStep % currentTotalSteps;
+            // Use Tone.Draw to sync visual updates with audio timing
+            // Only update currentStep if we're not stopping
+            Draw.schedule(() => {
+              set({ currentStep: stepToPlay });
+            }, time);
+          }
         },
         subdivision,
         timeUntilNextStep // Start at next step boundary (0 if at boundary)
@@ -200,8 +225,14 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
 
     stop: () => {
       const state = get();
-      // Allow stop from both playing and paused states
-      if (!state.isPlaying && !state.isPaused) return;
+      const wasAlreadyStopped = !state.isPlaying && !state.isPaused;
+
+      // If already stopped, just reset playhead to beginning
+      if (wasAlreadyStopped) {
+        Tone.getTransport().position = 0;
+        set({ currentStep: 0, pausedPosition: 0 });
+        return;
+      }
 
       // Stop transport
       Tone.getTransport().stop();
@@ -243,6 +274,70 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       stop();
       Tone.getTransport().bpm.value = DEFAULT_BPM;
       set({ bpm: DEFAULT_BPM });
+    },
+
+    seekForward: () => {
+      const state = get();
+      const pattern = usePatternStore.getState().currentPattern;
+      if (!pattern) return;
+
+      const stepsPerBeat = getStepsPerBeat(pattern.subdivision);
+      const totalSteps = pattern.tracks[0]?.steps.length ?? 16;
+
+      // Calculate new step (move forward by one beat)
+      const newStep = (state.currentStep + stepsPerBeat) % totalSteps;
+
+      // Update position
+      const stepDuration = (60 / state.bpm) / stepsPerBeat;
+      const newPosition = newStep * stepDuration;
+
+      Tone.getTransport().position = newPosition;
+      set({ currentStep: newStep, pausedPosition: newPosition });
+    },
+
+    seekBackward: () => {
+      const state = get();
+      const pattern = usePatternStore.getState().currentPattern;
+      if (!pattern) return;
+
+      const stepsPerBeat = getStepsPerBeat(pattern.subdivision);
+      const totalSteps = pattern.tracks[0]?.steps.length ?? 16;
+
+      // Calculate new step (move backward by one beat)
+      let newStep = state.currentStep - stepsPerBeat;
+      if (newStep < 0) {
+        newStep = totalSteps + newStep; // Wrap around
+      }
+
+      // Update position
+      const stepDuration = (60 / state.bpm) / stepsPerBeat;
+      const newPosition = newStep * stepDuration;
+
+      Tone.getTransport().position = newPosition;
+      set({ currentStep: newStep, pausedPosition: newPosition });
+    },
+
+    toggleLoop: () => {
+      set((state) => ({ isLooping: !state.isLooping }));
+    },
+
+    setPlayhead: (step: number) => {
+      const state = get();
+      const pattern = usePatternStore.getState().currentPattern;
+      if (!pattern) return;
+
+      const stepsPerBeat = getStepsPerBeat(pattern.subdivision);
+      const totalSteps = pattern.tracks[0]?.steps.length ?? 16;
+
+      // Clamp step to valid range
+      const clampedStep = Math.max(0, Math.min(step, totalSteps - 1));
+
+      // Update position
+      const stepDuration = (60 / state.bpm) / stepsPerBeat;
+      const newPosition = clampedStep * stepDuration;
+
+      Tone.getTransport().position = newPosition;
+      set({ currentStep: clampedStep, pausedPosition: newPosition });
     },
   };
 });

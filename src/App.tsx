@@ -8,6 +8,7 @@ import { ThemeToggle } from './components/ui/ThemeToggle';
 import { useAudioStore } from './stores/useAudioStore';
 import { useToastStore } from './stores/useToastStore';
 import { useThemeStore } from './stores/useThemeStore';
+import { useSelectionStore } from './stores/useSelectionStore';
 import { APP_VERSION } from './config/version';
 import { usePlaybackStore } from './stores/usePlaybackStore';
 import { useUrlPatternLoader, useUrlSync } from './hooks';
@@ -32,6 +33,17 @@ function App() {
   const play = usePlaybackStore((state) => state.play);
   const pause = usePlaybackStore((state) => state.pause);
   const adjustBpm = usePlaybackStore((state) => state.adjustBpm);
+  const seekForward = usePlaybackStore((state) => state.seekForward);
+  const seekBackward = usePlaybackStore((state) => state.seekBackward);
+  const toggleLoop = usePlaybackStore((state) => state.toggleLoop);
+
+  // Selection store for copy/paste
+  const {
+    copySelection,
+    pasteAtPlayhead,
+    clearSelection,
+    selectionStart,
+  } = useSelectionStore();
 
   // Story 4.3: Load pattern from URL
   const { error: urlError } = useUrlPatternLoader();
@@ -70,6 +82,32 @@ function App() {
         return;
       }
 
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modifierKey = isMac ? e.metaKey : e.ctrlKey;
+
+      // Escape: Clear selection
+      if (e.key === 'Escape') {
+        clearSelection();
+        return;
+      }
+
+      // Cmd/Ctrl + C: Copy selection
+      if (modifierKey && e.key === 'c') {
+        if (selectionStart) {
+          e.preventDefault();
+          copySelection();
+          showToast('Copied to clipboard', 'success');
+        }
+        return;
+      }
+
+      // Cmd/Ctrl + V: Paste at playhead
+      if (modifierKey && e.key === 'v') {
+        e.preventDefault();
+        pasteAtPlayhead();
+        return;
+      }
+
       // Space: Toggle play/pause
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault(); // Prevent page scroll
@@ -81,7 +119,19 @@ function App() {
         return;
       }
 
-      // Arrow keys: Adjust BPM by 5
+      // Left/Right Arrow: Seek backward/forward (when not playing)
+      if (e.key === 'ArrowLeft' && !isPlaying) {
+        e.preventDefault();
+        seekBackward();
+        return;
+      }
+      if (e.key === 'ArrowRight' && !isPlaying) {
+        e.preventDefault();
+        seekForward();
+        return;
+      }
+
+      // Up/Down Arrow: Adjust BPM by 5
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         adjustBpm(5);
@@ -92,11 +142,17 @@ function App() {
         adjustBpm(-5);
         return;
       }
+
+      // L: Toggle loop
+      if (e.key === 'l' || e.key === 'L') {
+        toggleLoop();
+        return;
+      }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, play, pause, adjustBpm]);
+  }, [isPlaying, play, pause, adjustBpm, seekForward, seekBackward, toggleLoop, copySelection, pasteAtPlayhead, clearSelection, selectionStart, showToast]);
 
   const isDark = theme === 'fgdp-50';
 

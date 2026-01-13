@@ -28,9 +28,11 @@ const BINARY_VERSION = 1;
 /** Number of tracks (fixed at 18) */
 const NUM_TRACKS = 18;
 
-/** Subdivision encoding: 0=8n, 1=16n, 2=32n */
-const SUBDIVISION_MAP: Record<Subdivision, number> = { '8n': 0, '16n': 1, '32n': 2 };
-const SUBDIVISION_REVERSE: Subdivision[] = ['8n', '16n', '32n'];
+/** Subdivision encoding: 0-7 for all subdivision types */
+const SUBDIVISION_MAP: Record<Subdivision, number> = {
+  '4n': 0, '4t': 1, '8n': 2, '8t': 3, '16n': 4, '16t': 5, '32n': 6, '32t': 7
+};
+const SUBDIVISION_REVERSE: Subdivision[] = ['4n', '4t', '8n', '8t', '16n', '16t', '32n', '32t'];
 
 /**
  * Convert standard Base64 to URL-safe Base64
@@ -119,10 +121,10 @@ function toBinary(pattern: DrumPattern): Uint8Array {
   // Version
   buffer[offset++] = BINARY_VERSION;
 
-  // Flags: bars (2 bits) | subdivision (2 bits) | reserved (4 bits)
+  // Flags: bars (2 bits) | subdivision (3 bits) | reserved (3 bits)
   const barsValue = pattern.bars - 1; // 0-3 for 1-4 bars
   const subdivValue = SUBDIVISION_MAP[pattern.subdivision];
-  buffer[offset++] = (barsValue << 6) | (subdivValue << 4);
+  buffer[offset++] = (barsValue << 6) | (subdivValue << 3);
 
   // BPM (big-endian 16-bit)
   buffer[offset++] = (pattern.bpm >> 8) & 0xFF;
@@ -189,10 +191,10 @@ function fromBinary(data: Uint8Array): DrumPattern | null {
       return null;
     }
 
-    // Flags
+    // Flags: bars (2 bits) | subdivision (3 bits) | reserved (3 bits)
     const flags = data[offset++];
     const bars = ((flags >> 6) & 0x03) + 1 as 1 | 2 | 3 | 4;
-    const subdivIdx = (flags >> 4) & 0x03;
+    const subdivIdx = (flags >> 3) & 0x07;
     const subdivision = SUBDIVISION_REVERSE[subdivIdx] ?? '16n';
 
     // BPM

@@ -60,10 +60,71 @@ function StopIcon() {
 }
 
 /**
+ * Forward icon (skip forward one beat)
+ */
+function ForwardIcon() {
+  return (
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" />
+    </svg>
+  );
+}
+
+/**
+ * Backward icon (skip backward one beat)
+ */
+function BackwardIcon() {
+  return (
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" />
+    </svg>
+  );
+}
+
+/**
+ * Loop icon (repeat arrow)
+ */
+function LoopIcon() {
+  return (
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+    </svg>
+  );
+}
+
+/**
  * PlaybackControls component
  */
 export const PlaybackControls = memo(function PlaybackControls() {
-  const { isPlaying, isPaused, play, pause, stop, bpm, setBpm, adjustBpm } = usePlaybackStore();
+  const {
+    isPlaying,
+    isPaused,
+    isLooping,
+    play,
+    pause,
+    stop,
+    bpm,
+    setBpm,
+    adjustBpm,
+    seekForward,
+    seekBackward,
+    toggleLoop
+  } = usePlaybackStore();
   const { isAudioReady, isLoading: isAudioLoading, initAudio } = useAudioStore();
   const theme = useThemeStore((state) => state.theme);
   const isDark = theme === 'fgdp-50';
@@ -166,11 +227,11 @@ export const PlaybackControls = memo(function PlaybackControls() {
         <PauseIcon />
       </button>
 
-      {/* Stop Button */}
+      {/* Stop Button - always enabled to reset playhead to beginning */}
       <button
         type="button"
         onClick={stop}
-        disabled={(!isPlaying && !isPaused) || !canPlay}
+        disabled={!canPlay}
         className={`
           flex items-center justify-center
           w-10 h-10 rounded-full
@@ -178,9 +239,71 @@ export const PlaybackControls = memo(function PlaybackControls() {
           focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringOffset}
           ${buttonBase} focus:ring-slate-400
         `}
-        aria-label="Stop playback"
+        aria-label="Stop playback and reset to beginning"
       >
         <StopIcon />
+      </button>
+
+      {/* Separator */}
+      <div className={`w-px h-6 ${isDark ? 'bg-slate-600' : 'bg-slate-300'}`} />
+
+      {/* Backward Button */}
+      <button
+        type="button"
+        onClick={seekBackward}
+        disabled={isPlaying}
+        className={`
+          flex items-center justify-center
+          w-10 h-10 rounded-full
+          transition-colors
+          focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringOffset}
+          ${buttonBase} focus:ring-slate-400
+          disabled:opacity-50
+        `}
+        aria-label="Skip backward one beat"
+        title="Skip backward one beat"
+      >
+        <BackwardIcon />
+      </button>
+
+      {/* Forward Button */}
+      <button
+        type="button"
+        onClick={seekForward}
+        disabled={isPlaying}
+        className={`
+          flex items-center justify-center
+          w-10 h-10 rounded-full
+          transition-colors
+          focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringOffset}
+          ${buttonBase} focus:ring-slate-400
+          disabled:opacity-50
+        `}
+        aria-label="Skip forward one beat"
+        title="Skip forward one beat"
+      >
+        <ForwardIcon />
+      </button>
+
+      {/* Loop Toggle Button */}
+      <button
+        type="button"
+        onClick={toggleLoop}
+        className={`
+          flex items-center justify-center
+          w-10 h-10 rounded-full
+          transition-colors
+          focus:outline-none focus:ring-2 focus:ring-offset-2 ${ringOffset}
+          ${
+            isLooping
+              ? 'bg-sky-500 text-white ring-2 ring-sky-400'
+              : `${buttonBase} focus:ring-slate-400`
+          }
+        `}
+        aria-label={isLooping ? 'Disable loop' : 'Enable loop'}
+        title={isLooping ? 'Loop: On' : 'Loop: Off'}
+      >
+        <LoopIcon />
       </button>
 
       {/* BPM Control */}

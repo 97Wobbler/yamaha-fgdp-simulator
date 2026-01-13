@@ -1,10 +1,9 @@
 /**
- * Audio Store - Manages Tone.js synthesizers for drum sounds
+ * Audio Store - Manages audio playback for drum sounds
  *
- * Story 2.5: Audio Store
- * - Initializes AudioContext on first user interaction
- * - Creates synthesizers for 18 drum pads (no sample files needed)
- * - Provides playPad(padId, time?) for sound playback
+ * Supports two modes:
+ * 1. Sample-based: Uses pre-recorded WAV/MP3 samples for realistic drum sounds
+ * 2. Synthesis-based: Uses Tone.js synthesizers (fallback if samples unavailable)
  *
  * Timing Fix: Uses Web Audio API's precise scheduling
  * - Optional `time` parameter for sample-accurate playback
@@ -13,36 +12,108 @@
 
 import { create } from 'zustand';
 import * as Tone from 'tone';
-import { type PadId } from '../config/padMapping';
+import { PAD_IDS, type PadId } from '../config/padMapping';
+import {
+  DRUM_SAMPLE_URLS,
+  SAMPLE_VOLUMES,
+  SAMPLE_RATES,
+  getUniqueSampleUrls,
+  type AudioMode,
+} from '../config/drumSamples';
 
-/** Synth trigger function type - accepts optional time for precise scheduling */
+/** Synth/Sample trigger function type - accepts optional time for precise scheduling */
 type SynthTrigger = (time?: number) => void;
 
 interface AudioStore {
   /** Whether Tone.js AudioContext has been started */
   isAudioReady: boolean;
-  /** Whether synths are currently initializing */
+  /** Whether audio is currently initializing */
   isLoading: boolean;
+  /** Loading progress (0-100) */
+  loadingProgress: number;
   /** Error message if initialization failed */
   error: string | null;
-  /** Map of pad ID to synth trigger function */
+  /** Current audio mode */
+  audioMode: AudioMode;
+  /** Map of pad ID to trigger function */
   triggers: Partial<Record<PadId, SynthTrigger>>;
 
-  /** Initialize audio context and create synths (call on first user interaction) */
+  /** Initialize audio context and load samples/create synths */
   initAudio: () => Promise<void>;
-  /** Play a drum sound for a specific pad
-   * @param padId - The pad to trigger
-   * @param time - Optional Web Audio time for precise scheduling (from Transport callback)
-   */
+  /** Play a drum sound for a specific pad */
   playPad: (padId: PadId, time?: number) => void;
-  /** Dispose all synths and reset state */
+  /** Switch audio mode */
+  setAudioMode: (mode: AudioMode) => Promise<void>;
+  /** Dispose all audio resources and reset state */
   dispose: () => void;
 }
 
 /**
- * Create all drum synthesizers
+ * Load drum samples using Tone.Player
+ * Returns triggers and disposables, or throws on error
+ */
+async function loadDrumSamplers(
+  onProgress: (progress: number) => void
+): Promise<{
+  triggers: Record<PadId, SynthTrigger>;
+  disposables: Tone.ToneAudioNode[];
+}> {
+  const triggers: Partial<Record<PadId, SynthTrigger>> = {};
+  const disposables: Tone.ToneAudioNode[] = [];
+  const uniqueUrls = getUniqueSampleUrls();
+
+  // Create a map to track loaded players by URL (to share between L/R pads)
+  const playersByUrl = new Map<string, Tone.Player>();
+  let loadedCount = 0;
+
+  // Load each unique sample
+  await Promise.all(
+    uniqueUrls.map(async (url) => {
+      try {
+        const player = new Tone.Player({
+          url,
+          onload: () => {
+            loadedCount++;
+            onProgress(Math.round((loadedCount / uniqueUrls.length) * 100));
+          },
+        }).toDestination();
+        await Tone.loaded();
+        playersByUrl.set(url, player);
+        disposables.push(player);
+      } catch {
+        // Sample loading failed, will use fallback
+        throw new Error(`Failed to load sample: ${url}`);
+      }
+    })
+  );
+
+  // Create trigger functions for each pad
+  for (const padId of PAD_IDS) {
+    const url = DRUM_SAMPLE_URLS[padId];
+    const player = playersByUrl.get(url);
+
+    if (player) {
+      const volume = SAMPLE_VOLUMES[padId] ?? 0;
+      const rate = SAMPLE_RATES[padId] ?? 1;
+
+      triggers[padId] = (time?: number) => {
+        // Clone the player buffer for polyphonic playback
+        const clone = new Tone.Player(player.buffer).toDestination();
+        clone.volume.value = volume;
+        clone.playbackRate = rate;
+        clone.start(time);
+        // Auto-dispose after playback
+        clone.onstop = () => clone.dispose();
+      };
+    }
+  }
+
+  return { triggers: triggers as Record<PadId, SynthTrigger>, disposables };
+}
+
+/**
+ * Create all drum synthesizers (fallback mode)
  * Returns a map of pad ID to trigger function
- * Each trigger function accepts optional `time` for precise scheduling
  */
 function createDrumSynths(): {
   triggers: Record<PadId, SynthTrigger>;
@@ -267,12 +338,14 @@ function createDrumSynths(): {
 }
 
 // Store the disposables outside Zustand for cleanup
-let synthDisposables: Tone.ToneAudioNode[] = [];
+let audioDisposables: Tone.ToneAudioNode[] = [];
 
 export const useAudioStore = create<AudioStore>((set, get) => ({
   isAudioReady: false,
   isLoading: false,
+  loadingProgress: 0,
   error: null,
+  audioMode: 'synthesis', // Default to synthesis (no samples required)
   triggers: {},
 
   initAudio: async () => {
@@ -283,26 +356,47 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
       return;
     }
 
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, loadingProgress: 0 });
 
     try {
       // Start Tone.js AudioContext (required due to browser autoplay policy)
       await Tone.start();
 
-      // Create all drum synths
-      const { triggers, disposables } = createDrumSynths();
-      synthDisposables = disposables;
+      // Try to load samples first, fallback to synthesis
+      let triggers: Record<PadId, SynthTrigger>;
+      let disposables: Tone.ToneAudioNode[];
+      let mode: AudioMode = 'samples';
+
+      try {
+        const result = await loadDrumSamplers((progress) => {
+          set({ loadingProgress: progress });
+        });
+        triggers = result.triggers;
+        disposables = result.disposables;
+      } catch {
+        // Samples not available, use synthesis fallback
+        console.log('Drum samples not found, using synthesis fallback');
+        const result = createDrumSynths();
+        triggers = result.triggers;
+        disposables = result.disposables;
+        mode = 'synthesis';
+      }
+
+      audioDisposables = disposables;
 
       set({
         isAudioReady: true,
         isLoading: false,
+        loadingProgress: 100,
         triggers,
+        audioMode: mode,
         error: null,
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       set({
         isLoading: false,
+        loadingProgress: 0,
         error: `Audio initialization failed: ${errorMessage}`,
       });
     }
@@ -322,20 +416,35 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
     }
   },
 
+  setAudioMode: async (mode: AudioMode) => {
+    const state = get();
+    if (state.audioMode === mode) return;
+
+    // Dispose current audio
+    state.dispose();
+
+    // Set mode preference
+    set({ audioMode: mode });
+
+    // Re-initialize with new mode
+    await state.initAudio();
+  },
+
   dispose: () => {
-    // Dispose all synths
-    synthDisposables.forEach((node) => {
+    // Dispose all audio nodes
+    audioDisposables.forEach((node) => {
       try {
         node.dispose();
       } catch {
         // Ignore disposal errors
       }
     });
-    synthDisposables = [];
+    audioDisposables = [];
 
     set({
       isAudioReady: false,
       isLoading: false,
+      loadingProgress: 0,
       error: null,
       triggers: {},
     });

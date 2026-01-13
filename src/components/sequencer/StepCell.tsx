@@ -12,6 +12,7 @@
 import { memo, useCallback, useState } from 'react';
 import { usePatternStore } from '../../stores/usePatternStore';
 import { useAudioStore } from '../../stores/useAudioStore';
+import { useSelectionStore } from '../../stores/useSelectionStore';
 import { formatFingerDesignation, type FingerDesignation } from '../../types/pattern';
 import { FingerEditor } from './FingerEditor';
 import type { PadId } from '../../config/padMapping';
@@ -77,16 +78,66 @@ export const StepCell = memo(function StepCell({
   const updateStepFinger = usePatternStore((state) => state.updateStepFinger);
   const playPad = useAudioStore((state) => state.playPad);
 
+  // Selection store
+  const {
+    isSelecting,
+    selectionStart,
+    selectionEnd,
+    startSelection,
+    updateSelection,
+    endSelection,
+    clearSelection,
+    isCellSelected,
+  } = useSelectionStore();
+
+  // Check if there's any selection active
+  const hasSelection = selectionStart !== null && selectionEnd !== null;
+
+  // Only show selection highlight on ACTIVE cells within selection bounds
+  const isInSelectionBounds = isCellSelected(trackIndex, stepIndex);
+  const isSelected = isInSelectionBounds && active;
+
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorPosition, setEditorPosition] = useState({ x: 0, y: 0 });
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    // If Shift is held, don't toggle - selection mode will handle it
+    if (e.shiftKey) return;
+
+    // If there's an active selection, clear it instead of toggling
+    if (hasSelection) {
+      clearSelection();
+      return;
+    }
+
     // Play sound only when activating (not when deactivating)
     if (!active) {
       playPad(padId as PadId);
     }
     toggleStep(trackIndex, stepIndex);
-  }, [toggleStep, trackIndex, stepIndex, active, playPad, padId]);
+  }, [toggleStep, trackIndex, stepIndex, active, playPad, padId, hasSelection, clearSelection]);
+
+  // Selection handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      e.preventDefault();
+      // Clear any existing selection and start new
+      clearSelection();
+      startSelection(trackIndex, stepIndex);
+    }
+  }, [startSelection, clearSelection, trackIndex, stepIndex]);
+
+  const handleMouseEnter = useCallback(() => {
+    if (isSelecting) {
+      updateSelection(trackIndex, stepIndex);
+    }
+  }, [isSelecting, updateSelection, trackIndex, stepIndex]);
+
+  const handleMouseUp = useCallback(() => {
+    if (isSelecting) {
+      endSelection();
+    }
+  }, [isSelecting, endSelection]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -129,11 +180,22 @@ export const StepCell = memo(function StepCell({
       ? 'bg-slate-300 border-slate-400 hover:bg-slate-400'
       : 'bg-slate-200 border-slate-300 hover:bg-slate-300';
 
+  // Selection highlight style - theme-aware colors with glow for visibility
+  // Dark mode: cyan glow, Light mode: violet glow
+  const selectionStyle = isSelected
+    ? isDark
+      ? 'ring-2 ring-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.8)] z-10'
+      : 'ring-2 ring-violet-500 shadow-[0_0_8px_rgba(139,92,246,0.8)] z-10'
+    : '';
+
   return (
     <>
       <button
         type="button"
         onClick={handleClick}
+        onMouseDown={handleMouseDown}
+        onMouseEnter={handleMouseEnter}
+        onMouseUp={handleMouseUp}
         onContextMenu={handleContextMenu}
         className={`
           h-[30px]
@@ -144,6 +206,7 @@ export const StepCell = memo(function StepCell({
           flex items-center justify-center
           text-xs font-bold
           focus:outline-none focus:ring-2 focus:ring-offset-1 ${isDark ? 'focus:ring-offset-slate-900' : 'focus:ring-offset-slate-100'}
+          ${selectionStyle}
           ${
             active && colors
               ? `${colors.bg} ${colors.border} ${colors.hover} ${colors.ring} ${colors.text}`
@@ -155,7 +218,7 @@ export const StepCell = memo(function StepCell({
         style={{ width: cellWidth }}
         role="gridcell"
         aria-pressed={active}
-        aria-label={`Step ${stepIndex + 1}, ${active ? `active, ${fingerDisplay}` : 'inactive'}. Right-click to edit finger.`}
+        aria-label={`Step ${stepIndex + 1}, ${active ? `active, ${fingerDisplay}` : 'inactive'}. Right-click to edit finger. Shift+drag to select.`}
       >
         {active && fingerDisplay && (
           <span className="select-none">{fingerDisplay}</span>
