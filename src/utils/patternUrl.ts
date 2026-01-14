@@ -28,11 +28,12 @@ const BINARY_VERSION = 1;
 /** Number of tracks (fixed at 18) */
 const NUM_TRACKS = 18;
 
-/** Subdivision encoding: 0-7 for all subdivision types */
+/** Subdivision encoding: maintains v1.0.2 compatibility (8n=0, 16n=1, 32n=2) */
 const SUBDIVISION_MAP: Record<Subdivision, number> = {
-  '4n': 0, '4t': 1, '8n': 2, '8t': 3, '16n': 4, '16t': 5, '32n': 6, '32t': 7
+  '8n': 0, '16n': 1, '32n': 2,  // v1.0.2 compatible
+  '4n': 3, '4t': 4, '8t': 5, '16t': 6, '32t': 7  // v1.0.3 new
 };
-const SUBDIVISION_REVERSE: Subdivision[] = ['4n', '4t', '8n', '8t', '16n', '16t', '32n', '32t'];
+const SUBDIVISION_REVERSE: Subdivision[] = ['8n', '16n', '32n', '4n', '4t', '8t', '16t', '32t'];
 
 /**
  * Convert standard Base64 to URL-safe Base64
@@ -82,7 +83,13 @@ function decodePatternName(data: Uint8Array, offset: number): { name: string; by
 /**
  * Binary format structure:
  * - 1 byte: version
- * - 1 byte: bars (1-4) << 4 | subdivision (0-2) << 2 | reserved
+ * - 1 byte: flags
+ *     bits 7-6: bars (0-3 for 1-4 bars)
+ *     bits 5-4: subdivLower (lower 2 bits of subdivision index)
+ *     bit 3:    subdivUpper (upper 1 bit of subdivision index)
+ *     bits 2-0: reserved
+ *   Subdivision index: (subdivUpper << 2) | subdivLower
+ *   v1.0.2 compatibility: indices 0-2 (8n, 16n, 32n) use subdivLower only
  * - 2 bytes: BPM (big-endian)
  * - 1 byte: name length
  * - N bytes: name (UTF-8)
@@ -121,10 +128,13 @@ function toBinary(pattern: DrumPattern): Uint8Array {
   // Version
   buffer[offset++] = BINARY_VERSION;
 
-  // Flags: bars (2 bits) | subdivision (3 bits) | reserved (3 bits)
+  // Flags: bars (2 bits) | subdivLower (2 bits) | subdivUpper (1 bit) | reserved (3 bits)
+  // v1.0.2 compatibility: subdivLower at bits 4-5 matches v1.0.2 layout for indices 0-2
   const barsValue = pattern.bars - 1; // 0-3 for 1-4 bars
   const subdivValue = SUBDIVISION_MAP[pattern.subdivision];
-  buffer[offset++] = (barsValue << 6) | (subdivValue << 3);
+  const subdivLower = subdivValue & 0x03;        // lower 2 bits of subdivision index (bits 0-1)
+  const subdivUpper = (subdivValue >> 2) & 0x01; // upper 1 bit of subdivision index (bit 2)
+  buffer[offset++] = (barsValue << 6) | (subdivLower << 4) | (subdivUpper << 3);
 
   // BPM (big-endian 16-bit)
   buffer[offset++] = (pattern.bpm >> 8) & 0xFF;
@@ -191,10 +201,13 @@ function fromBinary(data: Uint8Array): DrumPattern | null {
       return null;
     }
 
-    // Flags: bars (2 bits) | subdivision (3 bits) | reserved (3 bits)
+    // Flags: bars (2 bits) | subdivLower (2 bits) | subdivUpper (1 bit) | reserved (3 bits)
+    // v1.0.2 compatibility: subdivLower at bits 4-5 matches v1.0.2 layout for indices 0-2
     const flags = data[offset++];
     const bars = ((flags >> 6) & 0x03) + 1 as 1 | 2 | 3 | 4;
-    const subdivIdx = (flags >> 3) & 0x07;
+    const subdivLower = (flags >> 4) & 0x03;  // lower 2 bits of subdivision index (bits 0-1)
+    const subdivUpper = (flags >> 3) & 0x01;  // upper 1 bit of subdivision index (bit 2)
+    const subdivIdx = (subdivUpper << 2) | subdivLower;
     const subdivision = SUBDIVISION_REVERSE[subdivIdx] ?? '16n';
 
     // BPM

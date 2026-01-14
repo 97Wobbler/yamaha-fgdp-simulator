@@ -13,14 +13,19 @@ import { encodePattern, decodePattern, MAX_ENCODED_LENGTH } from './patternUrl';
 import type { DrumPattern, PatternTrack } from '../types/pattern';
 import { PAD_IDS, PADS, FINGER_DEFAULTS, type PadId } from '../config/padMapping';
 
+import type { Subdivision } from '../types/pattern';
+
 // Helper to create a minimal valid pattern using PAD_IDS structure
 function createTestPattern(
   name: string = 'Test Pattern',
   bars: 1 | 2 | 3 | 4 = 1,
-  subdivision: '8n' | '16n' | '32n' = '16n'
+  subdivision: Subdivision = '16n'
 ): DrumPattern {
   // Calculate step count based on bars and subdivision
-  const stepsPerBeat = subdivision === '8n' ? 2 : subdivision === '16n' ? 4 : 8;
+  const stepsPerBeatMap: Record<Subdivision, number> = {
+    '4n': 1, '4t': 1.5, '8n': 2, '8t': 3, '16n': 4, '16t': 6, '32n': 8, '32t': 12
+  };
+  const stepsPerBeat = stepsPerBeatMap[subdivision];
   const totalSteps = bars * 4 * stepsPerBeat;
 
   const tracks: PatternTrack[] = PAD_IDS.map((padId) => ({
@@ -259,6 +264,168 @@ describe('Pattern URL Encoding', () => {
       expect(decoded!.bars).toBe(1);
       expect(decoded!.subdivision).toBe('16n');
       expect(decoded!.tracks[0].steps.length).toBe(16);
+    });
+  });
+
+  describe('v1.0.2 backward compatibility', () => {
+    it('should decode v1.0.2 encoded patterns with 8n subdivision (index 0)', () => {
+      // Create a pattern with 8n subdivision (v1.0.2 compatible index 0)
+      const original = createTestPattern('v1.0.2 8n Test', 1, '8n');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'R', finger: 1 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('8n');
+      expect(decoded!.tracks[0].steps[0].active).toBe(true);
+    });
+
+    it('should decode v1.0.2 encoded patterns with 16n subdivision (index 1)', () => {
+      // Create a pattern with 16n subdivision (v1.0.2 compatible index 1)
+      const original = createTestPattern('v1.0.2 16n Test', 1, '16n');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'R', finger: 2 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('16n');
+    });
+
+    it('should decode v1.0.2 encoded patterns with 32n subdivision (index 2)', () => {
+      // Create a pattern with 32n subdivision (v1.0.2 compatible index 2)
+      const original = createTestPattern('v1.0.2 32n Test', 1, '32n');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'L', finger: 3 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('32n');
+    });
+
+    it('should maintain subdivision index order for v1.0.2 compatibility (8n=0, 16n=1, 32n=2)', () => {
+      // Verify the subdivision map maintains backward compatibility
+      const subdivisions: Subdivision[] = ['8n', '16n', '32n'];
+
+      subdivisions.forEach((subdiv, expectedIndex) => {
+        const pattern = createTestPattern(`Test ${subdiv}`, 1, subdiv);
+        pattern.tracks[0].steps[0].active = true;
+        pattern.tracks[0].steps[0].finger = { hand: 'R', finger: 1 };
+
+        const encoded = encodePattern(pattern);
+        const decoded = decodePattern(encoded!);
+
+        expect(decoded).not.toBeNull();
+        expect(decoded!.subdivision).toBe(subdiv);
+      });
+    });
+  });
+
+  describe('triplet subdivision support (v1.0.3)', () => {
+    it('should encode and decode 4n (quarter notes) subdivision', () => {
+      const original = createTestPattern('4n Test', 1, '4n');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'R', finger: 1 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('4n');
+      expect(decoded!.tracks[0].steps.length).toBe(4); // 1 bar * 4 beats * 1 step/beat
+    });
+
+    it('should encode and decode 4t (quarter triplets) subdivision', () => {
+      const original = createTestPattern('4t Test', 1, '4t');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'R', finger: 1 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('4t');
+      expect(decoded!.tracks[0].steps.length).toBe(6); // 1 bar * 4 beats * 1.5 steps/beat
+    });
+
+    it('should encode and decode 8t (eighth triplets) subdivision', () => {
+      const original = createTestPattern('8t Test', 1, '8t');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'L', finger: 2 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('8t');
+      expect(decoded!.tracks[0].steps.length).toBe(12); // 1 bar * 4 beats * 3 steps/beat
+    });
+
+    it('should encode and decode 16t (sixteenth triplets) subdivision', () => {
+      const original = createTestPattern('16t Test', 1, '16t');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'R', finger: 3 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('16t');
+      expect(decoded!.tracks[0].steps.length).toBe(24); // 1 bar * 4 beats * 6 steps/beat
+    });
+
+    it('should encode and decode 32t (thirty-second triplets) subdivision', () => {
+      const original = createTestPattern('32t Test', 1, '32t');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'L', finger: 4 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.subdivision).toBe('32t');
+      expect(decoded!.tracks[0].steps.length).toBe(48); // 1 bar * 4 beats * 12 steps/beat
+    });
+
+    it('should roundtrip all subdivision types correctly', () => {
+      const allSubdivisions: Subdivision[] = ['4n', '4t', '8n', '8t', '16n', '16t', '32n', '32t'];
+
+      allSubdivisions.forEach((subdiv) => {
+        const original = createTestPattern(`Roundtrip ${subdiv}`, 1, subdiv);
+        original.tracks[0].steps[0].active = true;
+        original.tracks[0].steps[0].finger = { hand: 'R', finger: 1 };
+
+        const encoded = encodePattern(original);
+        expect(encoded).not.toBeNull();
+
+        const decoded = decodePattern(encoded!);
+        expect(decoded).not.toBeNull();
+        expect(decoded!.subdivision).toBe(subdiv);
+        expect(decoded!.tracks[0].steps[0].active).toBe(true);
+      });
+    });
+
+    it('should handle multi-bar triplet patterns', () => {
+      const original = createTestPattern('2 Bar 8t', 2, '8t');
+      original.tracks[0].steps[0].active = true;
+      original.tracks[0].steps[0].finger = { hand: 'R', finger: 1 };
+      original.tracks[0].steps[23].active = true; // Last step of 2 bars @ 8t (24 steps)
+      original.tracks[0].steps[23].finger = { hand: 'L', finger: 5 };
+
+      const encoded = encodePattern(original);
+      const decoded = decodePattern(encoded!);
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bars).toBe(2);
+      expect(decoded!.subdivision).toBe('8t');
+      expect(decoded!.tracks[0].steps.length).toBe(24);
+      expect(decoded!.tracks[0].steps[0].active).toBe(true);
+      expect(decoded!.tracks[0].steps[23].active).toBe(true);
     });
   });
 
