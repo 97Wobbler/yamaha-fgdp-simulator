@@ -3,21 +3,34 @@ import { usePlaybackStore } from '../../stores/usePlaybackStore';
 import { usePatternStore } from '../../stores/usePatternStore';
 import { useAudioStore } from '../../stores/useAudioStore';
 import { PAD_IDS, PADS, type PadId } from '../../config/padMapping';
+import { formatFingerDesignation, getStepsPerBeat, type FingerDesignation, type Subdivision } from '../../types/pattern';
 
 /**
- * Calculate duration of half a 16th note in milliseconds
+ * Calculate duration of half a step in milliseconds
  * @param bpm - Current tempo in BPM
+ * @param subdivision - Current subdivision
  * @returns Duration in milliseconds
  */
-function getHalfStepDuration(bpm: number): number {
-  // 1 beat = 60000ms / bpm
-  // 1 16th note = 1 beat / 4
-  // Half 16th note = 1 beat / 8
-  return (60000 / bpm) / 8;
+function getHalfStepDuration(bpm: number, subdivision: Subdivision): number {
+  const stepsPerBeat = getStepsPerBeat(subdivision);
+  const stepMs = 60000 / bpm / stepsPerBeat;
+  return stepMs / 2;
+}
+
+/**
+ * Calculate duration of a full step in milliseconds
+ * @param bpm - Current tempo in BPM
+ * @param subdivision - Current subdivision
+ * @returns Duration in milliseconds
+ */
+function getFullStepDuration(bpm: number, subdivision: Subdivision): number {
+  const stepsPerBeat = getStepsPerBeat(subdivision);
+  return 60000 / bpm / stepsPerBeat;
 }
 
 interface PadVisualizerProps {
   highlightedPads?: number[];
+  showFingerLabel?: boolean;
 }
 
 /**
@@ -27,6 +40,22 @@ interface PadVisualizerProps {
 function getPadIndexFromId(padId: string): number {
   const index = PAD_IDS.indexOf(padId as (typeof PAD_IDS)[number]);
   return index >= 0 ? index + 1 : -1;
+}
+
+/**
+ * Get the SVG coordinates for a finger label on a given pad.
+ * Long bar pads (snare, kick) position L at 1/3 and R at 2/3.
+ */
+function getFingerLabelPosition(padIndex: number, hand: 'L' | 'R'): { x: number; y: number } {
+  const longBarBounds = LONG_BAR_BOUNDS[padIndex];
+  if (longBarBounds) {
+    const width = longBarBounds.maxX - longBarBounds.minX;
+    const x = hand === 'L'
+      ? longBarBounds.minX + width / 3
+      : longBarBounds.minX + (width * 2) / 3;
+    return { x, y: longBarBounds.y };
+  }
+  return PAD_CENTERS[padIndex];
 }
 
 /**
@@ -79,7 +108,7 @@ const GRADIENT_RADIUS = 60;
  * Renders the 18-pad FGDP layout with data-pad-index attributes for each pad
  * Story 3.7: Highlights pads during playback based on current step
  */
-export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) => {
+export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [], showFingerLabel = false }) => {
   // Story 3.7: Subscribe to playback and pattern stores
   const isPlaying = usePlaybackStore((state) => state.isPlaying);
   const currentStep = usePlaybackStore((state) => state.currentStep);
@@ -89,11 +118,14 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
   // Audio store for pad click sound playback
   const { playPad, isAudioReady, initAudio } = useAudioStore();
 
-  // Track active pads with their hand designation for colored highlighting
-  const [activePads, setActivePads] = useState<Map<number, 'L' | 'R'>>(new Map());
+  // Track active pads with their finger designation for colored highlighting and finger labels
+  const [activePads, setActivePads] = useState<Map<number, FingerDesignation>>(new Map());
+  // Separate state for finger labels (stays visible for a full 16th note)
+  const [activeFingerLabels, setActiveFingerLabels] = useState<Map<number, FingerDesignation>>(new Map());
   // Track clicked pad for visual feedback
   const [clickedPad, setClickedPad] = useState<number | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fingerLabelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Handle pad click to play sound
@@ -139,42 +171,58 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
   // Calculate which pads are active for the current step
   // Pads light up immediately and turn off after half a 16th note
   useEffect(() => {
-    // Clear any pending timeout
+    // Clear any pending timeouts
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+    if (fingerLabelTimeoutRef.current) {
+      clearTimeout(fingerLabelTimeoutRef.current);
+      fingerLabelTimeoutRef.current = null;
+    }
 
     if (!isPlaying || !currentPattern) {
       setActivePads(new Map());
+      setActiveFingerLabels(new Map());
       return;
     }
 
     // Set active pads immediately
-    const newActivePads = new Map<number, 'L' | 'R'>();
+    const newActivePads = new Map<number, FingerDesignation>();
     currentPattern.tracks.forEach((track) => {
       const step = track.steps[currentStep];
       if (step.active && step.finger) {
         const padIndex = getPadIndexFromId(track.padId);
         if (padIndex > 0) {
-          newActivePads.set(padIndex, step.finger.hand);
+          newActivePads.set(padIndex, step.finger);
         }
       }
     });
     setActivePads(newActivePads);
+    setActiveFingerLabels(newActivePads);
 
-    // Turn off after half the 16th note duration
     if (newActivePads.size > 0) {
-      const halfStepMs = getHalfStepDuration(bpm);
+      // Pad highlight turns off after half the step duration
+      const halfStepMs = getHalfStepDuration(bpm, currentPattern.subdivision);
       timeoutRef.current = setTimeout(() => {
         setActivePads(new Map());
       }, halfStepMs);
+
+      // Finger labels stay visible for a full step
+      const fullStepMs = getFullStepDuration(bpm, currentPattern.subdivision);
+      fingerLabelTimeoutRef.current = setTimeout(() => {
+        setActiveFingerLabels(new Map());
+      }, fullStepMs);
     }
 
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
+      }
+      if (fingerLabelTimeoutRef.current) {
+        clearTimeout(fingerLabelTimeoutRef.current);
+        fingerLabelTimeoutRef.current = null;
       }
     };
   }, [isPlaying, currentStep, currentPattern, bpm]);
@@ -192,11 +240,11 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
       return { className: 'pad-highlighted' };
     }
     // Check active pads from playback
-    const hand = activePads.get(padIndex);
-    if (!hand) return { className: '' };
+    const finger = activePads.get(padIndex);
+    if (!finger) return { className: '' };
 
     // Use pad-specific circular gradient with fixed radius
-    const gradientId = hand === 'R' ? `radial-r-${padIndex}` : `radial-l-${padIndex}`;
+    const gradientId = finger.hand === 'R' ? `radial-r-${padIndex}` : `radial-l-${padIndex}`;
     return { className: '', fill: `url(#${gradientId})` };
   };
 
@@ -362,6 +410,30 @@ export const PadVisualizer: FC<PadVisualizerProps> = ({ highlightedPads = [] }) 
               role="button"
               aria-label={padInfo ? `Play ${padInfo.label}` : `Play pad ${padIndex}`}
             />
+          );
+        })}
+        {/* Finger number labels rendered on top of pads */}
+        {showFingerLabel && Array.from(activeFingerLabels.entries()).map(([padIndex, finger]) => {
+          const pos = getFingerLabelPosition(padIndex, finger.hand);
+          const label = formatFingerDesignation(finger);
+          return (
+            <text
+              key={`finger-${padIndex}`}
+              x={pos.x}
+              y={pos.y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill="#ffffff"
+              stroke="#000000"
+              strokeWidth={5}
+              paintOrder="stroke"
+              fontSize={66}
+              fontWeight="bold"
+              fontFamily="monospace"
+              style={{ pointerEvents: 'none' }}
+            >
+              {label}
+            </text>
           );
         })}
       </svg>

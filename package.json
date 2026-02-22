@@ -1,6 +1,6 @@
 {
   "name": "yamaha-fgdp-simulator",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A web-based drum pattern editor and trainer for Yamaha FGDP-50 finger drum pad",
   "author": "97wobbler",
   "license": "SEE LICENSE IN LICENSE",

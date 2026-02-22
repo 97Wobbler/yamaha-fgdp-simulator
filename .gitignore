@@ -29,12 +29,5 @@ coverage/
 # Vite
 .vite/
 
-
-
-# Local config (not for public)
-.claude/
-.cursor/
-.bmad/
-_bmad/
-_bmad-output/
-.mcp.json
+# Agentic frameworks
+.omc/

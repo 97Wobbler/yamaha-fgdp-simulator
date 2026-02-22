@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PadVisualizer } from './components/visualization/PadVisualizer';
 import { StepSequencer } from './components/sequencer';
 import { PlaybackControls } from './components/playback';
@@ -155,6 +155,7 @@ function App() {
   }, [isPlaying, play, pause, adjustBpm, seekForward, seekBackward, toggleLoop, copySelection, pasteAtPlayhead, clearSelection, selectionStart, showToast]);
 
   const isDark = theme === 'fgdp-50';
+  const [showFingerLabel, setShowFingerLabel] = useState(false);
 
   return (
     <div
@@ -171,7 +172,7 @@ function App() {
       }`}>
         <div className="flex items-center">
           {/* Left: Title + Version + GitHub */}
-          <div className="w-40 lg:w-48 shrink-0 flex items-center gap-2">
+          <div className="w-48 lg:w-64 shrink-0 flex items-center gap-2">
             <h1 className="text-base lg:text-lg font-semibold tracking-tight">
               FGDP Trainer
             </h1>
@@ -186,8 +187,38 @@ function App() {
             <PlaybackControls />
           </div>
 
-          {/* Right: Share + Theme */}
-          <div className="w-40 lg:w-48 shrink-0 flex items-center justify-end gap-2">
+          {/* Right: Finger Label Toggle + Share + Theme */}
+          <div className="w-48 lg:w-64 shrink-0 flex items-center justify-end gap-2">
+            <div className="flex items-center gap-1.5 mr-1">
+              <span className={`text-xs hidden lg:inline whitespace-nowrap ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                Finger
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showFingerLabel}
+                aria-label="Toggle finger number display"
+                title={showFingerLabel ? 'Finger numbers: On' : 'Finger numbers: Off'}
+                onClick={() => setShowFingerLabel((v) => !v)}
+                className={`
+                  relative inline-flex h-5 w-9 items-center rounded-full shrink-0
+                  transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1
+                  ${showFingerLabel
+                    ? 'bg-sky-500'
+                    : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                  }
+                  ${isDark ? 'focus:ring-offset-slate-900' : 'focus:ring-offset-slate-100'}
+                  focus:ring-sky-400
+                `}
+              >
+                <span
+                  className={`
+                    inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform
+                    ${showFingerLabel ? 'translate-x-[18px]' : 'translate-x-[3px]'}
+                  `}
+                />
+              </button>
+            </div>
             <ShareButton />
             <ThemeToggle />
           </div>
@@ -213,7 +244,7 @@ function App() {
           className="flex-[2] min-h-0 flex items-center justify-center"
           aria-label="Pad Visualizer Section"
         >
-          <PadVisualizer />
+          <PadVisualizer showFingerLabel={showFingerLabel} />
         </section>
       </main>
 

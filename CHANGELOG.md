@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-02-22
+
+### Added
+- Finger number labels on pad visualizer during pattern playback (toggle via header switch)
+- Right hand shows `1`, `2`, `3`, `4`; left hand shows `(1)`, `(2)`, `(3)`, `(4)`
+- Long bar pads (snare, kick) display L/R finger numbers at separate positions
+
+### Fixed
+- Pad highlight and finger label timing now correctly adapts to all subdivisions (triplets, 32nd notes, etc.)
+
 ## [1.0.4] - 2026-01-14
 
 ### Added
@@ -74,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard shortcuts (Space for play/stop, arrows for BPM)
 - GitHub Pages deployment workflow
 
+[1.0.5]: https://github.com/97wobbler/yamaha-fgdp-simulator/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/97wobbler/yamaha-fgdp-simulator/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/97wobbler/yamaha-fgdp-simulator/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/97wobbler/yamaha-fgdp-simulator/compare/v1.0.1...v1.0.2
